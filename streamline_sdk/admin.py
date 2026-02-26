@@ -342,3 +342,4 @@ class Admin:
         """Exit async context manager."""
         await self.close()
 # correct offset reset behavior on new consumer group
+# resolve event loop conflict in nested async calls
