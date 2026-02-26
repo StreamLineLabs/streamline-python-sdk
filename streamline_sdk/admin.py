@@ -345,3 +345,4 @@ class Admin:
 # resolve event loop conflict in nested async calls
 
 # add async context manager for producer lifecycle
+# extract connection pool into dedicated module
