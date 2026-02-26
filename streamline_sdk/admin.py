@@ -343,3 +343,5 @@ class Admin:
         await self.close()
 # correct offset reset behavior on new consumer group
 # resolve event loop conflict in nested async calls
+
+# add async context manager for producer lifecycle
