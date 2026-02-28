@@ -30,6 +30,8 @@ from .exceptions import (
 )
 from .retry import RetryConfig, retry_async, with_retry
 from .telemetry import StreamlineTracing
+from .query import QueryClient, QueryResult
+from .ai import AIClient
 
 __version__ = "0.2.0"
 
@@ -60,4 +62,9 @@ __all__ = [
     "with_retry",
     # Telemetry
     "StreamlineTracing",
+    # Query
+    "QueryClient",
+    "QueryResult",
+    # AI
+    "AIClient",
 ]
