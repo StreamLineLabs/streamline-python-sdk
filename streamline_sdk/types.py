@@ -3,7 +3,7 @@ Type definitions for Streamline Python SDK.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional,Iterator
 from datetime import datetime
 
 
@@ -224,8 +224,8 @@ class QueryResult:
     execution_time_ms: int
     """Execution time in milliseconds."""
 
-    def __iter__(self):
+    def __iter__(self) -> "Iterator[Dict[str, Any]]":
         return iter(self.rows)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return self.row_count

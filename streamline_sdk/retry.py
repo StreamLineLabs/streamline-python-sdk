@@ -110,7 +110,7 @@ async def retry_async(
     raise last_exception  # type: ignore[misc]
 
 
-def with_retry(config: Optional[RetryConfig] = None) -> Callable:
+def with_retry(config: Optional[RetryConfig] = None) -> Callable[..., Any]:
     """Decorator that adds retry logic to an async function.
 
     Args:
@@ -127,7 +127,7 @@ def with_retry(config: Optional[RetryConfig] = None) -> Callable:
     """
     cfg = config or RetryConfig()
 
-    def decorator(func: Callable) -> Callable:
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
             return await retry_async(func, *args, config=cfg, **kwargs)

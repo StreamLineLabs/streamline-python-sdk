@@ -66,7 +66,7 @@ class SchemaRegistryClient:
                     data = await resp.json()
                     schema_id = data["id"]
                     self._cache[subject] = schema_id
-                    return schema_id
+                    return int(schema_id)
                 else:
                     text = await resp.text()
                     raise StreamlineError(f"Schema registration failed: {resp.status} {text}")
@@ -79,7 +79,7 @@ class SchemaRegistryClient:
             async with session.get(url) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    return data["schema"]
+                    return str(data["schema"])
                 else:
                     raise StreamlineError(f"Schema not found: {schema_id}")
 
@@ -151,7 +151,7 @@ class JsonSchemaSerializer:
         self.auto_register = auto_register
         self.validate = validate
         self._schema_id: Optional[int] = None
-        self._schema: Optional[dict] = json.loads(schema_str) if schema_str else None
+        self._schema: Optional[Dict[str, Any]] = json.loads(schema_str) if schema_str else None
 
     async def serialize(self, topic: str, value: Dict[str, Any]) -> bytes:
         """Serialize a value to JSON bytes with optional validation."""

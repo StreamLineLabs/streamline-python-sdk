@@ -200,7 +200,7 @@ class Consumer:
         if self._consumer is None:
             raise ConsumerError("Consumer not started")
 
-        return await self._consumer.position(partition)
+        return int(await self._consumer.position(partition))
 
     async def committed(self, partition: TopicPartition) -> Optional[int]:
         """Get committed offset for a partition.
@@ -214,7 +214,8 @@ class Consumer:
         if self._consumer is None:
             raise ConsumerError("Consumer not started")
 
-        return await self._consumer.committed(partition)
+        result = await self._consumer.committed(partition)
+        return int(result) if result is not None else None
 
     def assignment(self) -> Set[TopicPartition]:
         """Get assigned partitions.
@@ -225,7 +226,7 @@ class Consumer:
         if self._consumer is None:
             return set()
 
-        return self._consumer.assignment()
+        return set(self._consumer.assignment())
 
     def subscription(self) -> Set[str]:
         """Get subscribed topics.
@@ -312,13 +313,13 @@ class Consumer:
     @property
     def group_id(self) -> Optional[str]:
         """Get the consumer group ID."""
-        return self._consumer_config.group_id
+        return str(self._consumer_config.group_id) if self._consumer_config.group_id is not None else None
 
     async def __aenter__(self) -> "Consumer":
         """Enter async context manager."""
         await self.start()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(self, exc_type: Optional[type], exc_val: Optional[BaseException], exc_tb: Optional[Any]) -> None:
         """Exit async context manager."""
         await self.close()

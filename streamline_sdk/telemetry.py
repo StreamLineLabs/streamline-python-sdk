@@ -316,10 +316,7 @@ class StreamlineTracing:
 
     # ── Decorators ────────────────────────────────────────────────────
 
-    def traced_produce(
-        self,
-        topic: str,
-    ) -> Callable:
+    def traced_produce(self, topic: str) -> Callable[..., Any]:
         """Decorator that traces an async produce function.
 
         Args:
@@ -332,7 +329,7 @@ class StreamlineTracing:
                 await producer.send("events", value=data)
         """
 
-        def decorator(func: Callable) -> Callable:
+        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             if not self._enabled:
                 return func
 
@@ -345,10 +342,7 @@ class StreamlineTracing:
 
         return decorator
 
-    def traced_consume(
-        self,
-        topic: str,
-    ) -> Callable:
+    def traced_consume(self, topic: str) -> Callable[..., Any]:
         """Decorator that traces an async consume function.
 
         Args:
@@ -362,7 +356,7 @@ class StreamlineTracing:
                     process(record)
         """
 
-        def decorator(func: Callable) -> Callable:
+        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             if not self._enabled:
                 return func
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional,Any
 
 from .producer import Producer
 from .consumer import Consumer
@@ -113,8 +113,8 @@ class StreamlineClient:
         client_config: Optional[ClientConfig] = None,
         producer_config: Optional[ProducerConfig] = None,
         consumer_config: Optional[ConsumerConfig] = None,
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         """Initialize the client.
 
         Args:
@@ -173,7 +173,7 @@ class StreamlineClient:
     def consumer(
         self,
         group_id: Optional[str] = None,
-        **kwargs,
+        **kwargs:Any,
     ) -> Consumer:
         """Create a new consumer.
 
@@ -255,7 +255,7 @@ class StreamlineClient:
         await self.start()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(self, exc_type: Optional[type], exc_val: Optional[BaseException], exc_tb: Optional[Any]) -> None:
         """Exit the async context manager."""
         await self.close()
 
