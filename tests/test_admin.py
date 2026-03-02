@@ -262,3 +262,4 @@ class TestAdminErrors:
         admin = Admin(ClientConfig())
         await admin.close()
         assert admin.is_started is False
+
