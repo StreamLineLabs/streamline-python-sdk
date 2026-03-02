@@ -102,3 +102,4 @@ class QueryClient:
             with urllib.request.urlopen(req) as resp:
                 data = json.loads(resp.read())
                 return data.get("plan", "")
+
