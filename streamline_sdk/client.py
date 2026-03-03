@@ -268,3 +268,4 @@ class StreamlineClient:
     def is_connected(self) -> bool:
         """Check if client is connected."""
         return self._started and not self._closed
+
