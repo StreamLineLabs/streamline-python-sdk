@@ -38,8 +38,14 @@ for message in consumer:
 - Kafka protocol compatible
 - Producer and consumer APIs
 - Consumer group support
-- Async support
+- Admin client (topic management, consumer groups)
+- SQL query support
+- Async support (async/await native)
 - Type hints throughout
+- Compression (LZ4, Zstd, Snappy, Gzip)
+- TLS/mTLS and SASL authentication (PLAIN, SCRAM-SHA-256/512)
+- Connection pooling with configurable pool size
+- Automatic reconnection with exponential backoff
 - Optional OpenTelemetry tracing for produce/consume operations
 
 ## OpenTelemetry Tracing
@@ -169,6 +175,33 @@ with StreamlineContainer() as streamline:
 | `await admin.describe_topic(name)` | Get topic information |
 | `await admin.list_consumer_groups()` | List consumer groups |
 | `await admin.describe_consumer_group(group_id)` | Get group information |
+
+## Requirements
+
+- Python 3.9 or later
+- Streamline server 0.2.0 or later
+
+## Error Handling
+
+```python
+from streamline import StreamlineClient, StreamlineError, TopicNotFoundError
+
+async with StreamlineClient("localhost:9092") as client:
+    try:
+        await client.produce("my-topic", b"key", b"value")
+    except TopicNotFoundError as e:
+        print(f"Topic not found: {e}")
+        print(f"Hint: {e.hint}")  # Actionable guidance
+    except StreamlineError as e:
+        if e.retryable:
+            print(f"Retryable error: {e}")
+        else:
+            print(f"Fatal error: {e}")
+```
+
+## Contributing
+
+Contributions are welcome! Please see the [organization contributing guide](https://github.com/streamlinelabs/.github/blob/main/CONTRIBUTING.md) for guidelines.
 
 ## License
 

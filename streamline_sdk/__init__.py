@@ -32,6 +32,12 @@ from .retry import RetryConfig, retry_async, with_retry
 from .telemetry import StreamlineTracing
 from .query import QueryClient, QueryResult
 from .ai import AIClient
+from .serializers import (
+    SchemaRegistryClient,
+    SchemaRegistryConfig,
+    AvroSerializer,
+    JsonSchemaSerializer,
+)
 
 __version__ = "0.2.0"
 
@@ -67,4 +73,9 @@ __all__ = [
     "QueryResult",
     # AI
     "AIClient",
+    # Schema Registry
+    "SchemaRegistryClient",
+    "SchemaRegistryConfig",
+    "AvroSerializer",
+    "JsonSchemaSerializer",
 ]

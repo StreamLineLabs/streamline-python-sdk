@@ -83,6 +83,62 @@ class SchemaRegistryClient:
                 else:
                     raise StreamlineError(f"Schema not found: {schema_id}")
 
+    async def get_versions(self, subject: str) -> list[int]:
+        """List all schema version numbers for a subject."""
+        import aiohttp
+        async with aiohttp.ClientSession() as session:
+            url = f"{self.config.url}/subjects/{subject}/versions"
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                elif resp.status == 404:
+                    return []
+                else:
+                    text = await resp.text()
+                    raise StreamlineError(f"Failed to get versions: {resp.status} {text}")
+
+    async def check_compatibility(
+        self, subject: str, schema_str: str, schema_type: str = "AVRO"
+    ) -> bool:
+        """Check if a schema is compatible with the latest version."""
+        import aiohttp
+        async with aiohttp.ClientSession() as session:
+            url = f"{self.config.url}/compatibility/subjects/{subject}/versions/latest"
+            payload = {"schema": schema_str, "schemaType": schema_type}
+            async with session.post(url, json=payload) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data.get("is_compatible", False)
+                elif resp.status == 404:
+                    return True  # No existing schema means compatible
+                else:
+                    text = await resp.text()
+                    raise StreamlineError(f"Compatibility check failed: {resp.status} {text}")
+
+    async def get_subjects(self) -> list[str]:
+        """List all registered subjects."""
+        import aiohttp
+        async with aiohttp.ClientSession() as session:
+            url = f"{self.config.url}/subjects"
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                else:
+                    raise StreamlineError(f"Failed to list subjects: {resp.status}")
+
+    async def delete_subject(self, subject: str) -> list[int]:
+        """Delete a subject and all its versions. Returns deleted version numbers."""
+        import aiohttp
+        async with aiohttp.ClientSession() as session:
+            url = f"{self.config.url}/subjects/{subject}"
+            async with session.delete(url) as resp:
+                if resp.status == 200:
+                    self._cache.pop(subject, None)
+                    return await resp.json()
+                else:
+                    text = await resp.text()
+                    raise StreamlineError(f"Failed to delete subject: {resp.status} {text}")
+
 
 class AvroSerializer:
     """Avro serializer with Schema Registry integration.
