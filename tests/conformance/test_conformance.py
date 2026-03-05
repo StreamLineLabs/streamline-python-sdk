@@ -50,13 +50,63 @@ class TestAuthentication:
 
 # ========== SCHEMA REGISTRY (6 tests) ==========
 
+SCHEMA_REGISTRY_URL = "http://localhost:9094"
+
+AVRO_SCHEMA = '{"type":"record","name":"User","fields":[{"name":"id","type":"int"},{"name":"name","type":"string"}]}'
+JSON_SCHEMA = '{"type":"object","properties":{"id":{"type":"integer"},"name":{"type":"string"}},"required":["id","name"]}'
+
+
 class TestSchemaRegistry:
-    def test_s01_register_schema(self): pass
-    def test_s02_get_by_id(self): pass
-    def test_s03_get_versions(self): pass
-    def test_s04_compatibility_check(self): pass
-    def test_s05_avro_schema(self): pass
-    def test_s06_json_schema(self): pass
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        """Initialize schema registry client for each test."""
+        from streamline_sdk.serializers import SchemaRegistryClient, SchemaRegistryConfig
+        self.client = SchemaRegistryClient(SchemaRegistryConfig(url=SCHEMA_REGISTRY_URL))
+
+    @pytest.mark.asyncio
+    async def test_s01_register_schema(self):
+        """Register a schema and verify an ID is returned."""
+        schema_id = await self.client.register_schema("test-s01-value", AVRO_SCHEMA, "AVRO")
+        assert isinstance(schema_id, int)
+        assert schema_id > 0
+
+    @pytest.mark.asyncio
+    async def test_s02_get_by_id(self):
+        """Register a schema, then retrieve it by ID."""
+        schema_id = await self.client.register_schema("test-s02-value", AVRO_SCHEMA, "AVRO")
+        schema_str = await self.client.get_schema(schema_id)
+        assert "User" in schema_str
+
+    @pytest.mark.asyncio
+    async def test_s03_get_versions(self):
+        """Register multiple versions, verify version listing."""
+        await self.client.register_schema("test-s03-value", AVRO_SCHEMA, "AVRO")
+        versions = await self.client.get_versions("test-s03-value")
+        assert isinstance(versions, list)
+        assert len(versions) >= 1
+
+    @pytest.mark.asyncio
+    async def test_s04_compatibility_check(self):
+        """Register a schema and check compatibility of a new version."""
+        await self.client.register_schema("test-s04-value", AVRO_SCHEMA, "AVRO")
+        is_compat = await self.client.check_compatibility("test-s04-value", AVRO_SCHEMA, "AVRO")
+        assert isinstance(is_compat, bool)
+
+    @pytest.mark.asyncio
+    async def test_s05_avro_schema(self):
+        """Register an Avro schema specifically."""
+        schema_id = await self.client.register_schema("test-s05-avro", AVRO_SCHEMA, "AVRO")
+        assert schema_id > 0
+        schema_str = await self.client.get_schema(schema_id)
+        assert "record" in schema_str
+
+    @pytest.mark.asyncio
+    async def test_s06_json_schema(self):
+        """Register a JSON Schema specifically."""
+        schema_id = await self.client.register_schema("test-s06-json", JSON_SCHEMA, "JSON")
+        assert schema_id > 0
+        schema_str = await self.client.get_schema(schema_id)
+        assert "object" in schema_str
 
 # ========== ADMIN (4 tests) ==========
 
