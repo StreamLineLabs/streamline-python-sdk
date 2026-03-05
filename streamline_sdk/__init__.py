@@ -29,6 +29,7 @@ from .exceptions import (
     TopicError,
 )
 from .retry import RetryConfig, retry_async, with_retry
+from .circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitBreakerOpen, CircuitState
 from .telemetry import StreamlineTracing
 from .query import QueryClient, QueryResult
 from .ai import AIClient
@@ -38,6 +39,7 @@ from .serializers import (
     AvroSerializer,
     JsonSchemaSerializer,
 )
+from .schema_producer import SchemaProducer, SchemaConsumer, DeserializedRecord
 
 __version__ = "0.2.0"
 
@@ -66,6 +68,11 @@ __all__ = [
     "RetryConfig",
     "retry_async",
     "with_retry",
+    # Circuit Breaker
+    "CircuitBreaker",
+    "CircuitBreakerConfig",
+    "CircuitBreakerOpen",
+    "CircuitState",
     # Telemetry
     "StreamlineTracing",
     # Query
@@ -78,4 +85,8 @@ __all__ = [
     "SchemaRegistryConfig",
     "AvroSerializer",
     "JsonSchemaSerializer",
+    # Schema-aware wrappers
+    "SchemaProducer",
+    "SchemaConsumer",
+    "DeserializedRecord",
 ]

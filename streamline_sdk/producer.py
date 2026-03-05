@@ -5,12 +5,23 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Optional, Dict, List
+from typing import Any, Optional, Dict, List, TYPE_CHECKING
 
 from aiokafka import AIOKafkaProducer
 from aiokafka.errors import KafkaError
 
-from .exceptions import ProducerError
+from .circuit_breaker import CircuitBreakerOpen
+from .exceptions import (
+    ProducerError,
+    ConnectionError as _ConnectionError,
+    TimeoutError as _TimeoutError,
+)
+
+if TYPE_CHECKING:
+    from .circuit_breaker import CircuitBreaker
+
+_RETRYABLE_EXCEPTIONS = (_ConnectionError, _TimeoutError, OSError, asyncio.TimeoutError)
+
 
 
 @dataclass
@@ -63,15 +74,23 @@ class Producer:
             await producer.send("topic", value=b"message")
     """
 
-    def __init__(self, client_config: Any, producer_config: Any):
+    def __init__(
+        self,
+        client_config: Any,
+        producer_config: Any,
+        *,
+        circuit_breaker: Optional[CircuitBreaker] = None,
+    ):
         """Initialize the producer.
 
         Args:
             client_config: Client configuration.
             producer_config: Producer-specific configuration.
+            circuit_breaker: Optional circuit breaker for resilience.
         """
         self._client_config = client_config
         self._producer_config = producer_config
+        self._circuit_breaker = circuit_breaker
         self._producer: Optional[AIOKafkaProducer] = None
         self._started = False
 
@@ -157,6 +176,9 @@ class Producer:
             header_list = [(k, v) for k, v in headers.items()]
 
         try:
+            if self._circuit_breaker is not None and not self._circuit_breaker.allow():
+                raise CircuitBreakerOpen()
+
             future = await self._producer.send(
                 topic,
                 value=value,
@@ -167,6 +189,9 @@ class Producer:
             )
             result = await future
 
+            if self._circuit_breaker is not None:
+                self._circuit_breaker.record_success()
+
             return RecordMetadata(
                 topic=result.topic,
                 partition=result.partition,
@@ -175,8 +200,16 @@ class Producer:
                 serialized_key_size=len(key) if key else 0,
                 serialized_value_size=len(value) if value else 0,
             )
+        except CircuitBreakerOpen:
+            raise
         except KafkaError as e:
+            if self._circuit_breaker is not None and isinstance(e.__cause__, _RETRYABLE_EXCEPTIONS):
+                self._circuit_breaker.record_failure()
             raise ProducerError(f"Failed to send message: {e}") from e
+        except _RETRYABLE_EXCEPTIONS:
+            if self._circuit_breaker is not None:
+                self._circuit_breaker.record_failure()
+            raise
 
     async def send_record(self, record: ProducerRecord) -> RecordMetadata:
         """Send a ProducerRecord.

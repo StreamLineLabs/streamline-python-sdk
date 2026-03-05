@@ -5,12 +5,22 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, AsyncIterator, Dict, List, Optional, Set
+from typing import Any, AsyncIterator, Dict, List, Optional, Set, TYPE_CHECKING
 
 from aiokafka import AIOKafkaConsumer, TopicPartition
 from aiokafka.errors import KafkaError
 
-from .exceptions import ConsumerError
+from .circuit_breaker import CircuitBreakerOpen
+from .exceptions import (
+    ConsumerError,
+    ConnectionError as _ConnectionError,
+    TimeoutError as _TimeoutError,
+)
+
+if TYPE_CHECKING:
+    from .circuit_breaker import CircuitBreaker
+
+_RETRYABLE_EXCEPTIONS = (_ConnectionError, _TimeoutError, OSError, asyncio.TimeoutError)
 
 
 @dataclass
@@ -46,15 +56,23 @@ class Consumer:
                 print(f"Received: {message.value}")
     """
 
-    def __init__(self, client_config: Any, consumer_config: Any):
+    def __init__(
+        self,
+        client_config: Any,
+        consumer_config: Any,
+        *,
+        circuit_breaker: Optional[CircuitBreaker] = None,
+    ):
         """Initialize the consumer.
 
         Args:
             client_config: Client configuration.
             consumer_config: Consumer-specific configuration.
+            circuit_breaker: Optional circuit breaker for resilience.
         """
         self._client_config = client_config
         self._consumer_config = consumer_config
+        self._circuit_breaker = circuit_breaker
         self._consumer: Optional[AIOKafkaConsumer] = None
         self._subscribed_topics: Set[str] = set()
         self._started = False
@@ -252,6 +270,9 @@ class Consumer:
 
         records = []
         try:
+            if self._circuit_breaker is not None and not self._circuit_breaker.allow():
+                raise CircuitBreakerOpen()
+
             data = await self._consumer.getmany(
                 timeout_ms=timeout_ms, max_records=max_records
             )
@@ -274,8 +295,19 @@ class Consumer:
                             headers=headers,
                         )
                     )
+
+            if self._circuit_breaker is not None:
+                self._circuit_breaker.record_success()
+        except CircuitBreakerOpen:
+            raise
         except KafkaError as e:
+            if self._circuit_breaker is not None and isinstance(e.__cause__, _RETRYABLE_EXCEPTIONS):
+                self._circuit_breaker.record_failure()
             raise ConsumerError(f"Failed to poll: {e}") from e
+        except _RETRYABLE_EXCEPTIONS:
+            if self._circuit_breaker is not None:
+                self._circuit_breaker.record_failure()
+            raise
 
         return records
 
