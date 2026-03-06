@@ -199,6 +199,45 @@ async with StreamlineClient("localhost:9092") as client:
             print(f"Fatal error: {e}")
 ```
 
+## Configuration Reference
+
+### Client
+
+| Parameter | Default | Description |
+|---|---|---|
+| `bootstrap_servers` | `localhost:9092` | Comma-separated broker addresses |
+| `client_id` | auto-generated | Client identifier for server-side logging |
+
+### Producer
+
+| Parameter | Default | Description |
+|---|---|---|
+| `batch_size` | `16384` | Maximum batch size in bytes |
+| `linger_ms` | `0` | Time to wait before sending a batch (ms) |
+| `compression_type` | `none` | Compression: `none`, `gzip`, `snappy`, `lz4`, `zstd` |
+| `acks` | `1` | Acknowledgments: `0` (none), `1` (leader), `all` (all replicas) |
+| `retries` | `3` | Retries on transient failures |
+| `enable_idempotence` | `False` | Enable exactly-once semantics |
+
+### Consumer
+
+| Parameter | Default | Description |
+|---|---|---|
+| `group_id` | *(required)* | Consumer group identifier |
+| `auto_offset_reset` | `latest` | Start position: `earliest`, `latest` |
+| `enable_auto_commit` | `True` | Automatically commit offsets |
+| `auto_commit_interval_ms` | `5000` | Auto-commit interval (ms) |
+| `max_poll_records` | `500` | Maximum records per poll |
+| `session_timeout_ms` | `30000` | Session timeout (ms) |
+
+### Security
+
+| Parameter | Default | Description |
+|---|---|---|
+| `security_protocol` | `PLAINTEXT` | Protocol: `PLAINTEXT`, `SSL`, `SASL_PLAINTEXT`, `SASL_SSL` |
+| `sasl_mechanism` | — | SASL mechanism: `PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512` |
+| `ssl_cafile` | — | Path to CA certificate file |
+
 ## Contributing
 
 Contributions are welcome! Please see the [organization contributing guide](https://github.com/streamlinelabs/.github/blob/main/CONTRIBUTING.md) for guidelines.

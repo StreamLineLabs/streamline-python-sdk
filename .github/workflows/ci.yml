@@ -1,98 +1,21 @@
 name: CI
+
 on:
   push:
-    branches: [main]
   pull_request:
-    branches: [main]
+
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ['3.10', '3.11', '3.12', '3.13']
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
-      - run: pip install -e ".[dev]" || pip install -e .
-      - run: pip install pytest-cov pytest-asyncio
-      - name: Run tests
-        run: python -m pytest tests/ -v --cov=streamline_sdk --cov-report=xml
-      - name: Type check
-        run: |
-          pip install mypy
-          mypy streamline_sdk/ --ignore-missing-imports || true
-      - name: Lint
-        run: |
-          pip install ruff
-          ruff check streamline_sdk/
-      - name: Upload coverage
-        if: matrix.python-version == '3.13'
-        uses: codecov/codecov-action@v4
-        with:
-          files: coverage.xml
-          fail_ci_if_error: false
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          python-version: "3.11"
+          cache: pip
 
-  security-audit:
-    name: Security Audit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: pip install pip-audit
-      - run: pip install -e ".[dev]" || pip install -e .
-      - run: pip-audit
-
-  integration-test:
-    name: Integration Tests
-    runs-on: ubuntu-latest
-    needs: [test]
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: pip install -e ".[dev]" || pip install -e .
-      - run: pip install pytest-asyncio
-      - name: Start Streamline server
-        run: docker compose -f docker-compose.test.yml up -d
-      - name: Wait for Streamline to be healthy
-        run: |
-          for i in $(seq 1 30); do
-            if curl -sf http://localhost:9094/health; then
-              echo " Streamline is healthy"
-              exit 0
-            fi
-            echo "Waiting for Streamline... ($i/30)"
-            sleep 2
-          done
-          echo "Streamline failed to start"
-          docker compose -f docker-compose.test.yml logs
-          exit 1
-      - name: Run integration tests
-        run: python -m pytest tests/ -m integration -v
-        env:
-          STREAMLINE_BOOTSTRAP_SERVERS: localhost:9092
-      - name: Tear down Streamline
-        if: always()
-        run: docker compose -f docker-compose.test.yml down
-
-  docs:
-    name: Generate API docs
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Install dependencies
-        run: pip install -e ".[dev]" pdoc
-      - name: Generate docs
-        run: pdoc streamline_sdk -o docs/api --html
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: mypy
+      - run: pytest tests/

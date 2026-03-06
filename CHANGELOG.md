@@ -1,18 +1,16 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
-- feat: add async context manager for producer lifecycle
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-- feat: add batch consumer with configurable prefetch (2026-03-05)
-
-- refactor: improve type hints for public API (2026-03-06)
 ## [Unreleased]
 
-## [0.2.0] - 2026-02-28
+- feat: add async context manager for producer lifecycle
+- feat: add batch consumer with configurable prefetch (2026-03-05)
+- refactor: improve type hints for public API (2026-03-06)
 - **Changed**: update pyproject.toml dependencies
 - **Changed**: simplify connection configuration dataclass
 - **Testing**: add pytest fixtures for producer testing
@@ -29,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Performance
 - Optimize message deserialization path
 - Optimize message batching with memoryview
+
 
 ## [0.2.0] - 2026-02-18
 
