@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -9,6 +11,12 @@ from aiokafka.admin import AIOKafkaAdminClient, NewTopic
 from aiokafka.errors import KafkaError
 
 from .exceptions import TopicError
+
+try:
+    import aiohttp
+    HAS_AIOHTTP = True
+except ImportError:
+    HAS_AIOHTTP = False
 
 
 @dataclass
@@ -222,25 +230,19 @@ class Admin:
             raise TopicError(f"Failed to delete topics: {e}") from e
 
     async def list_topics(self) -> List[str]:
-        """List all topics.
+        """List all topics via the HTTP REST API.
 
         Returns:
             List of topic names.
         """
-        if self._admin is None:
-            raise TopicError("Admin client not started")
-
         try:
-            metadata = await self._admin.describe_cluster()
-            # Note: aiokafka's describe_cluster doesn't return topics directly
-            # We need to use the underlying client
-            topics = list(self._admin._client.cluster.topics())
-            return [t for t in topics if not t.startswith("__")]
-        except KafkaError as e:
+            data = await self._http_get("/v1/topics")
+            return [t["name"] for t in data if not t.get("name", "").startswith("__")]
+        except Exception as e:
             raise TopicError(f"Failed to list topics: {e}") from e
 
     async def describe_topic(self, name: str) -> TopicInfo:
-        """Describe a topic.
+        """Describe a topic via the HTTP REST API.
 
         Args:
             name: Topic name.
@@ -248,34 +250,40 @@ class Admin:
         Returns:
             TopicInfo object.
         """
-        if self._admin is None:
-            raise TopicError("Admin client not started")
-
         try:
-            # Force metadata refresh
-            await self._admin._client.force_metadata_update()
-            partitions = self._admin._client.cluster.partitions_for_topic(name)
-
-            if partitions is None:
-                raise TopicError(f"Topic not found: {name}")
-
-            # Get replication factor from first partition
-            replication_factor = 1
-            if partitions:
-                partition_meta = self._admin._client.cluster.partition_for_topic(
-                    name, list(partitions)[0]
-                )
-                if partition_meta:
-                    replication_factor = len(partition_meta.replicas)
-
+            data = await self._http_get(f"/v1/topics/{name}")
             return TopicInfo(
-                name=name,
-                partitions=len(partitions),
-                replication_factor=replication_factor,
+                name=data.get("name", name),
+                partitions=data.get("partitions", 0),
+                replication_factor=data.get("replication_factor", 1),
                 internal=name.startswith("__"),
             )
-        except KafkaError as e:
+        except TopicError:
+            raise
+        except Exception as e:
             raise TopicError(f"Failed to describe topic '{name}': {e}") from e
+
+    async def _http_get(self, path: str) -> Any:
+        """Make an HTTP GET request to the Streamline REST API."""
+        http_url = getattr(self._client_config, "http_url", "http://localhost:9094")
+        url = f"{http_url}{path}"
+
+        if HAS_AIOHTTP:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    if resp.status == 404:
+                        raise TopicError(f"Not found: {path}")
+                    if resp.status != 200:
+                        text = await resp.text()
+                        raise TopicError(f"HTTP {resp.status}: {text}")
+                    return await resp.json()
+        else:
+            import urllib.request
+            req = urllib.request.Request(url)
+            def _sync_get():
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    return json.loads(resp.read())
+            return await asyncio.to_thread(_sync_get)
 
     async def list_consumer_groups(self) -> List[str]:
         """List all consumer groups.

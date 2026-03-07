@@ -178,5 +178,5 @@ class AIClient:
                 data=json.dumps(payload).encode(),
                 headers={"Content-Type": "application/json"},
             )
-            with urllib.request.urlopen(req) as resp:
+            with urllib.request.urlopen(req, timeout=30) as resp:
                 return json.loads(resp.read())

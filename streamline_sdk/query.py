@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Optional
+import asyncio
 import json
 
 try:
@@ -62,14 +63,17 @@ class QueryClient:
                     data = await resp.json()
         else:
             # Fallback to urllib for environments without aiohttp
+            # Run in thread to avoid blocking the event loop
             import urllib.request
             req = urllib.request.Request(
                 f"{self.base_url}/api/v1/query",
                 data=json.dumps(payload).encode(),
                 headers={"Content-Type": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=timeout_ms / 1000) as resp:
-                data = json.loads(resp.read())
+            def _sync_request():
+                with urllib.request.urlopen(req, timeout=timeout_ms / 1000) as resp:
+                    return json.loads(resp.read())
+            data = await asyncio.to_thread(_sync_request)
 
         meta = data.get("metadata", {})
         return QueryResult(
@@ -99,7 +103,9 @@ class QueryClient:
                 data=json.dumps(payload).encode(),
                 headers={"Content-Type": "application/json"},
             )
-            with urllib.request.urlopen(req) as resp:
-                data = json.loads(resp.read())
-                return data.get("plan", "")
+            def _sync_explain():
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    return json.loads(resp.read())
+            data = await asyncio.to_thread(_sync_explain)
+            return data.get("plan", "")
 
