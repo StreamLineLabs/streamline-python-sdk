@@ -136,3 +136,24 @@ def with_retry(config: Optional[RetryConfig] = None) -> Callable:
 
     return decorator
 
+
+
+class ExponentialJitterBackoff:
+    """Exponential backoff with full jitter for retry operations.
+    
+    Uses the "Full Jitter" algorithm from AWS Architecture Blog:
+    sleep = random_between(0, min(cap, base * 2 ** attempt))
+    """
+
+    def __init__(self, base_ms: int = 100, cap_ms: int = 10000):
+        self.base_ms = base_ms
+        self.cap_ms = cap_ms
+
+    def delay_ms(self, attempt: int) -> int:
+        """Calculate delay for the given attempt number."""
+        import random
+        exp_delay = min(self.cap_ms, self.base_ms * (2 ** attempt))
+        return random.randint(0, exp_delay)
+
+    def __repr__(self) -> str:
+        return f"ExponentialJitterBackoff(base_ms={self.base_ms}, cap_ms={self.cap_ms})"
