@@ -178,3 +178,23 @@ class TestWithRetryDecorator:
 
         result = await succeed()
         assert result == 42
+
+
+def test_max_retries_exceeded():
+    """Test that retry stops after max attempts."""
+    from streamline_sdk.retry import RetryPolicy
+    
+    policy = RetryPolicy(max_retries=3)
+    assert policy.max_retries == 3
+    assert policy.should_retry(attempt=2) is True
+    assert policy.should_retry(attempt=3) is False
+
+
+def test_non_retryable_error():
+    """Test that non-retryable errors are not retried."""
+    from streamline_sdk.exceptions import AuthenticationError
+    from streamline_sdk.retry import RetryPolicy
+    
+    policy = RetryPolicy(max_retries=5)
+    err = AuthenticationError("invalid credentials")
+    assert policy.should_retry_error(err) is False
