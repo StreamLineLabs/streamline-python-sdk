@@ -229,3 +229,18 @@ class QueryResult:
 
     def __len__(self):
         return self.row_count
+
+
+from typing import NamedTuple
+
+
+class TopicPartition(NamedTuple):
+    """Represents a specific topic-partition pair."""
+    topic: str
+    partition: int
+
+
+class OffsetAndMetadata(NamedTuple):
+    """Represents an offset with optional metadata."""
+    offset: int
+    metadata: str = ""
