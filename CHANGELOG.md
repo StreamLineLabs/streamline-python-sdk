@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- AI client urllib fallback now has 30-second timeout (was missing, could hang indefinitely)
+- Query client urllib fallback now has timeout to prevent event loop blocking
+
+### Changed
 - feat: add async context manager for producer lifecycle
 - feat: add batch consumer with configurable prefetch (2026-03-05)
 - refactor: improve type hints for public API (2026-03-06)
