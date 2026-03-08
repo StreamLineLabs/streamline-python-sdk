@@ -38,6 +38,7 @@ class ClientConfig:
     )
     client_id: str = "streamline-python-client"
     request_timeout_ms: int = 30000
+    connection_timeout_ms: int = 10000
     metadata_max_age_ms: int = 300000
     security_protocol: str = "PLAINTEXT"
     sasl_mechanism: Optional[str] = None
