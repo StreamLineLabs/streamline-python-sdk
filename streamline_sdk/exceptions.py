@@ -83,3 +83,15 @@ class TimeoutError(StreamlineError):
             or "Consider increasing timeout settings or checking server load",
             **kwargs,
         )
+
+
+class RateLimitError(StreamlineError):
+    """Raised when the client is rate-limited by the broker."""
+
+    def __init__(self, retry_after_ms: int = 0):
+        self.retry_after_ms = retry_after_ms
+        super().__init__(
+            f"Rate limited. Retry after {retry_after_ms}ms",
+            hint="Reduce request rate or increase broker rate limits",
+            retryable=True,
+        )
