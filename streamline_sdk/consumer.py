@@ -62,6 +62,7 @@ class Consumer:
         consumer_config: Any,
         *,
         circuit_breaker: Optional[CircuitBreaker] = None,
+        telemetry: Optional[Any] = None,
     ):
         """Initialize the consumer.
 
@@ -69,10 +70,12 @@ class Consumer:
             client_config: Client configuration.
             consumer_config: Consumer-specific configuration.
             circuit_breaker: Optional circuit breaker for resilience.
+            telemetry: Optional StreamlineTracing instance for OTel tracing.
         """
         self._client_config = client_config
         self._consumer_config = consumer_config
         self._circuit_breaker = circuit_breaker
+        self._telemetry = telemetry
         self._consumer: Optional[AIOKafkaConsumer] = None
         self._subscribed_topics: Set[str] = set()
         self._started = False
@@ -269,32 +272,40 @@ class Consumer:
             raise ConsumerError("Consumer not started")
 
         records = []
+        topic_label = ",".join(sorted(self._subscribed_topics)) or "unknown"
         try:
             if self._circuit_breaker is not None and not self._circuit_breaker.allow():
                 raise CircuitBreakerOpen()
 
-            data = await self._consumer.getmany(
-                timeout_ms=timeout_ms, max_records=max_records
-            )
+            async def _do_poll() -> None:
+                data = await self._consumer.getmany(
+                    timeout_ms=timeout_ms, max_records=max_records
+                )
 
-            for tp, messages in data.items():
-                for msg in messages:
-                    headers = {}
-                    if msg.headers:
-                        for key, value in msg.headers:
-                            headers[key] = value
+                for tp, messages in data.items():
+                    for msg in messages:
+                        headers = {}
+                        if msg.headers:
+                            for key, value in msg.headers:
+                                headers[key] = value
 
-                    records.append(
-                        ConsumerRecord(
-                            topic=msg.topic,
-                            partition=msg.partition,
-                            offset=msg.offset,
-                            key=msg.key,
-                            value=msg.value,
-                            timestamp=datetime.fromtimestamp(msg.timestamp / 1000),
-                            headers=headers,
+                        records.append(
+                            ConsumerRecord(
+                                topic=msg.topic,
+                                partition=msg.partition,
+                                offset=msg.offset,
+                                key=msg.key,
+                                value=msg.value,
+                                timestamp=datetime.fromtimestamp(msg.timestamp / 1000),
+                                headers=headers,
+                            )
                         )
-                    )
+
+            if self._telemetry is not None:
+                async with self._telemetry.trace_consume(topic_label):
+                    await _do_poll()
+            else:
+                await _do_poll()
 
             if self._circuit_breaker is not None:
                 self._circuit_breaker.record_success()

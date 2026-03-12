@@ -58,6 +58,9 @@ artifacts = ["streamline_sdk/py.typed"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 python_files = ["test_*.py", "benchmark_*.py"]
+markers = [
+    "integration: marks tests as integration tests (require running Streamline server)",
+]
 
 [tool.mypy]
 python_version = "3.9"

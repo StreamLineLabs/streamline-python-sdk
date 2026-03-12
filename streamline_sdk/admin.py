@@ -102,6 +102,112 @@ class GroupMember:
     host: str
 
 
+@dataclass
+class ClusterInfo:
+    """Cluster overview information.
+
+    Attributes:
+        cluster_id: Cluster identifier.
+        broker_id: ID of the broker responding.
+        brokers: List of brokers in the cluster.
+        controller: ID of the controller broker.
+    """
+
+    cluster_id: str = ""
+    broker_id: int = 0
+    brokers: List["BrokerInfo"] = field(default_factory=list)
+    controller: int = -1
+
+
+@dataclass
+class BrokerInfo:
+    """Information about a single broker.
+
+    Attributes:
+        id: Broker ID.
+        host: Broker hostname.
+        port: Broker port.
+        rack: Optional rack identifier.
+    """
+
+    id: int = 0
+    host: str = ""
+    port: int = 9092
+    rack: Optional[str] = None
+
+
+@dataclass
+class ConsumerLag:
+    """Consumer lag for a single partition.
+
+    Attributes:
+        topic: Topic name.
+        partition: Partition index.
+        current_offset: Current consumer offset.
+        end_offset: End (log-end) offset.
+        lag: Offset lag (end_offset - current_offset).
+    """
+
+    topic: str = ""
+    partition: int = 0
+    current_offset: int = 0
+    end_offset: int = 0
+    lag: int = 0
+
+
+@dataclass
+class ConsumerGroupLag:
+    """Aggregated consumer group lag.
+
+    Attributes:
+        group_id: Consumer group ID.
+        partitions: Per-partition lag details.
+        total_lag: Total lag across all partitions.
+    """
+
+    group_id: str = ""
+    partitions: List[ConsumerLag] = field(default_factory=list)
+    total_lag: int = 0
+
+
+@dataclass
+class InspectedMessage:
+    """A message returned by the inspection API.
+
+    Attributes:
+        offset: Message offset.
+        key: Message key (optional).
+        value: Message value.
+        timestamp: Message timestamp.
+        partition: Partition index.
+        headers: Message headers.
+    """
+
+    offset: int = 0
+    key: Optional[str] = None
+    value: str = ""
+    timestamp: int = 0
+    partition: int = 0
+    headers: Dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class MetricPoint:
+    """A single metric data point.
+
+    Attributes:
+        name: Metric name.
+        value: Metric value.
+        labels: Metric labels.
+        timestamp: Metric timestamp.
+    """
+
+    name: str = ""
+    value: float = 0.0
+    labels: Dict[str, str] = field(default_factory=dict)
+    timestamp: int = 0
+
+
 class Admin:
     """Administrative operations for Streamline.
 
@@ -235,9 +341,14 @@ class Admin:
         Returns:
             List of topic names.
         """
+        if not self._started:
+            raise TopicError("Admin client not started")
+
         try:
             data = await self._http_get("/v1/topics")
             return [t["name"] for t in data if not t.get("name", "").startswith("__")]
+        except TopicError:
+            raise
         except Exception as e:
             raise TopicError(f"Failed to list topics: {e}") from e
 
@@ -250,6 +361,9 @@ class Admin:
         Returns:
             TopicInfo object.
         """
+        if not self._started:
+            raise TopicError("Admin client not started")
+
         try:
             data = await self._http_get(f"/v1/topics/{name}")
             return TopicInfo(
@@ -340,6 +454,160 @@ class Admin:
     def is_started(self) -> bool:
         """Check if admin client is started."""
         return self._started
+
+    async def cluster_info(self) -> ClusterInfo:
+        """Get cluster overview including broker list.
+
+        Returns:
+            ClusterInfo with broker details.
+        """
+        data = await self._http_get("/v1/cluster")
+        brokers = [
+            BrokerInfo(
+                id=b.get("id", 0),
+                host=b.get("host", ""),
+                port=b.get("port", 9092),
+                rack=b.get("rack"),
+            )
+            for b in data.get("brokers", [])
+        ]
+        return ClusterInfo(
+            cluster_id=data.get("cluster_id", ""),
+            broker_id=data.get("broker_id", 0),
+            brokers=brokers,
+            controller=data.get("controller", -1),
+        )
+
+    async def consumer_group_lag(self, group_id: str) -> ConsumerGroupLag:
+        """Get consumer lag for a specific consumer group.
+
+        Args:
+            group_id: Consumer group ID.
+
+        Returns:
+            ConsumerGroupLag with per-partition lag.
+        """
+        data = await self._http_get(f"/v1/consumer-groups/{group_id}/lag")
+        partitions = [
+            ConsumerLag(
+                topic=p.get("topic", ""),
+                partition=p.get("partition", 0),
+                current_offset=p.get("current_offset", 0),
+                end_offset=p.get("end_offset", 0),
+                lag=p.get("lag", 0),
+            )
+            for p in data.get("partitions", [])
+        ]
+        return ConsumerGroupLag(
+            group_id=data.get("group_id", group_id),
+            partitions=partitions,
+            total_lag=data.get("total_lag", sum(p.lag for p in partitions)),
+        )
+
+    async def consumer_group_topic_lag(
+        self, group_id: str, topic: str
+    ) -> ConsumerGroupLag:
+        """Get consumer lag for a specific topic within a group.
+
+        Args:
+            group_id: Consumer group ID.
+            topic: Topic name.
+
+        Returns:
+            ConsumerGroupLag scoped to the given topic.
+        """
+        data = await self._http_get(f"/v1/consumer-groups/{group_id}/lag/{topic}")
+        partitions = [
+            ConsumerLag(
+                topic=p.get("topic", topic),
+                partition=p.get("partition", 0),
+                current_offset=p.get("current_offset", 0),
+                end_offset=p.get("end_offset", 0),
+                lag=p.get("lag", 0),
+            )
+            for p in data.get("partitions", [])
+        ]
+        return ConsumerGroupLag(
+            group_id=data.get("group_id", group_id),
+            partitions=partitions,
+            total_lag=data.get("total_lag", sum(p.lag for p in partitions)),
+        )
+
+    async def inspect_messages(
+        self,
+        topic: str,
+        partition: int = 0,
+        offset: Optional[int] = None,
+        limit: int = 20,
+    ) -> List[InspectedMessage]:
+        """Browse messages from a topic partition.
+
+        Args:
+            topic: Topic name.
+            partition: Partition index.
+            offset: Start offset (optional).
+            limit: Maximum messages to return.
+
+        Returns:
+            List of inspected messages.
+        """
+        path = f"/v1/inspect/{topic}?partition={partition}&limit={limit}"
+        if offset is not None:
+            path += f"&offset={offset}"
+        data = await self._http_get(path)
+        return [
+            InspectedMessage(
+                offset=m.get("offset", 0),
+                key=m.get("key"),
+                value=m.get("value", ""),
+                timestamp=m.get("timestamp", 0),
+                partition=m.get("partition", partition),
+                headers=m.get("headers", {}),
+            )
+            for m in data
+        ]
+
+    async def latest_messages(
+        self, topic: str, count: int = 10
+    ) -> List[InspectedMessage]:
+        """Get the latest messages from a topic.
+
+        Args:
+            topic: Topic name.
+            count: Number of messages to return.
+
+        Returns:
+            List of latest messages.
+        """
+        data = await self._http_get(f"/v1/inspect/{topic}/latest?count={count}")
+        return [
+            InspectedMessage(
+                offset=m.get("offset", 0),
+                key=m.get("key"),
+                value=m.get("value", ""),
+                timestamp=m.get("timestamp", 0),
+                partition=m.get("partition", 0),
+                headers=m.get("headers", {}),
+            )
+            for m in data
+        ]
+
+    async def metrics_history(self) -> List[MetricPoint]:
+        """Get metrics history from the server.
+
+        Returns:
+            List of metric data points.
+        """
+        data = await self._http_get("/v1/metrics/history")
+        return [
+            MetricPoint(
+                name=m.get("name", ""),
+                value=float(m.get("value", 0)),
+                labels=m.get("labels", {}),
+                timestamp=m.get("timestamp", 0),
+            )
+            for m in data
+        ]
 
     async def __aenter__(self) -> "Admin":
         """Enter async context manager."""

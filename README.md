@@ -175,6 +175,33 @@ with StreamlineContainer() as streamline:
 | `await admin.describe_topic(name)` | Get topic information |
 | `await admin.list_consumer_groups()` | List consumer groups |
 | `await admin.describe_consumer_group(group_id)` | Get group information |
+| `await admin.cluster_info()` | Cluster overview (brokers, controller) |
+| `await admin.consumer_group_lag(group_id)` | Consumer group lag monitoring |
+| `await admin.consumer_group_topic_lag(group_id, topic)` | Topic-scoped lag |
+| `await admin.inspect_messages(topic, partition, offset, limit)` | Browse messages |
+| `await admin.latest_messages(topic, count)` | Get latest messages |
+| `await admin.metrics_history()` | Server metrics history |
+
+```python
+async with client.admin as admin:
+    # Cluster overview
+    cluster = await admin.cluster_info()
+    print(f"Cluster: {cluster.cluster_id}, Brokers: {len(cluster.brokers)}")
+
+    # Consumer group lag
+    lag = await admin.consumer_group_lag("my-group")
+    print(f"Total lag: {lag.total_lag}")
+    for p in lag.partitions:
+        print(f"  {p.topic}:{p.partition} lag={p.lag}")
+
+    # Message inspection
+    messages = await admin.inspect_messages("events", partition=0, limit=10)
+    for m in messages:
+        print(f"offset={m.offset} value={m.value}")
+
+    # Server metrics
+    metrics = await admin.metrics_history()
+```
 
 ## Requirements
 
@@ -237,6 +264,30 @@ async with StreamlineClient("localhost:9092") as client:
 | `security_protocol` | `PLAINTEXT` | Protocol: `PLAINTEXT`, `SSL`, `SASL_PLAINTEXT`, `SASL_SSL` |
 | `sasl_mechanism` | — | SASL mechanism: `PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512` |
 | `ssl_cafile` | — | Path to CA certificate file |
+
+## Circuit Breaker
+
+Protect your application from cascading failures when the Streamline server is unresponsive:
+
+```python
+from streamline.circuit_breaker import CircuitBreaker
+
+cb = CircuitBreaker(
+    failure_threshold=5,       # Open after 5 consecutive failures
+    success_threshold=2,       # Close after 2 half-open successes
+    open_timeout=30.0,         # 30s before probing
+)
+
+if cb.allow():
+    try:
+        await producer.send("events", b"key", b"value")
+        cb.record_success()
+    except Exception:
+        cb.record_failure()
+        raise
+```
+
+When the circuit is open, `allow()` returns `False` and operations should be skipped or rejected. See the [Circuit Breaker guide](https://streamlinelabs.dev/docs/features/circuit-breaker) for details.
 
 ## Contributing
 

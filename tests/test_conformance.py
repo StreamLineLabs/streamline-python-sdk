@@ -12,6 +12,17 @@ import json
 import time
 import pytest
 
+try:
+    import kafka  # noqa: F401
+    HAS_KAFKA = True
+except ImportError:
+    HAS_KAFKA = False
+
+pytestmark = [
+    pytest.mark.skipif(not HAS_KAFKA, reason="kafka-python package not installed"),
+    pytest.mark.integration,
+]
+
 # These tests require a running Streamline server.
 # In CI, the sdk-conformance.yml workflow provides one.
 # Locally, start with: streamline --in-memory

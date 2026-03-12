@@ -138,6 +138,41 @@ def with_retry(config: Optional[RetryConfig] = None) -> Callable:
 
 
 
+class RetryPolicy:
+    """Simple retry policy that decides whether an operation should be retried.
+
+    Attributes:
+        max_retries: Maximum number of retry attempts.
+        retryable_exceptions: Exception types that are safe to retry.
+    """
+
+    def __init__(
+        self,
+        max_retries: int = 3,
+        retryable_exceptions: Optional[Sequence[Type[Exception]]] = None,
+    ):
+        self.max_retries = max_retries
+        self.retryable_exceptions = tuple(
+            retryable_exceptions or DEFAULT_RETRYABLE_EXCEPTIONS
+        )
+
+    def should_retry(self, attempt: int) -> bool:
+        """Return True if another retry attempt is allowed.
+
+        Args:
+            attempt: The current attempt number (0-based).
+        """
+        return attempt < self.max_retries
+
+    def should_retry_error(self, error: Exception) -> bool:
+        """Return True if the given error is retryable.
+
+        Args:
+            error: The exception to evaluate.
+        """
+        return isinstance(error, self.retryable_exceptions)
+
+
 class ExponentialJitterBackoff:
     """Exponential backoff with full jitter for retry operations.
     

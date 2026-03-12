@@ -80,6 +80,7 @@ class Producer:
         producer_config: Any,
         *,
         circuit_breaker: Optional[CircuitBreaker] = None,
+        telemetry: Optional[Any] = None,
     ):
         """Initialize the producer.
 
@@ -87,12 +88,16 @@ class Producer:
             client_config: Client configuration.
             producer_config: Producer-specific configuration.
             circuit_breaker: Optional circuit breaker for resilience.
+            telemetry: Optional StreamlineTracing instance for OTel tracing.
         """
         self._client_config = client_config
         self._producer_config = producer_config
         self._circuit_breaker = circuit_breaker
+        self._telemetry = telemetry
         self._producer: Optional[AIOKafkaProducer] = None
         self._started = False
+        self._in_transaction = False
+        self._transaction_buffer: list[ProducerRecord] = []
 
     async def start(self) -> None:
         """Start the producer."""
@@ -179,27 +184,34 @@ class Producer:
             if self._circuit_breaker is not None and not self._circuit_breaker.allow():
                 raise CircuitBreakerOpen()
 
-            future = await self._producer.send(
-                topic,
-                value=value,
-                key=key,
-                partition=partition,
-                timestamp_ms=timestamp_ms,
-                headers=header_list,
-            )
-            result = await future
+            async def _do_send() -> RecordMetadata:
+                future = await self._producer.send(
+                    topic,
+                    value=value,
+                    key=key,
+                    partition=partition,
+                    timestamp_ms=timestamp_ms,
+                    headers=header_list,
+                )
+                result = await future
 
-            if self._circuit_breaker is not None:
-                self._circuit_breaker.record_success()
+                if self._circuit_breaker is not None:
+                    self._circuit_breaker.record_success()
 
-            return RecordMetadata(
-                topic=result.topic,
-                partition=result.partition,
-                offset=result.offset,
-                timestamp=datetime.fromtimestamp(result.timestamp / 1000),
-                serialized_key_size=len(key) if key else 0,
-                serialized_value_size=len(value) if value else 0,
-            )
+                return RecordMetadata(
+                    topic=result.topic,
+                    partition=result.partition,
+                    offset=result.offset,
+                    timestamp=datetime.fromtimestamp(result.timestamp / 1000),
+                    serialized_key_size=len(key) if key else 0,
+                    serialized_value_size=len(value) if value else 0,
+                )
+
+            if self._telemetry is not None:
+                async with self._telemetry.trace_produce(topic):
+                    return await _do_send()
+            else:
+                return await _do_send()
         except CircuitBreakerOpen:
             raise
         except KafkaError as e:
@@ -214,12 +226,26 @@ class Producer:
     async def send_record(self, record: ProducerRecord) -> RecordMetadata:
         """Send a ProducerRecord.
 
+        If a transaction is in progress, the record is buffered instead of being
+        sent immediately.
+
         Args:
             record: The record to send.
 
         Returns:
             Metadata about the sent message.
         """
+        if self._in_transaction:
+            self._transaction_buffer.append(record)
+            return RecordMetadata(
+                topic=record.topic,
+                partition=-1,
+                offset=-1,
+                timestamp=record.timestamp_ms or 0,
+                serialized_key_size=len(record.key) if record.key else 0,
+                serialized_value_size=len(record.value) if record.value else 0,
+            )
+
         partition = record.partition if record.partition >= 0 else None
         return await self.send(
             topic=record.topic,
@@ -259,6 +285,56 @@ class Producer:
     def is_started(self) -> bool:
         """Check if producer is started."""
         return self._started
+
+    async def begin_transaction(self) -> None:
+        """Begin a new transaction.
+
+        Messages sent after this call are buffered until
+        :meth:`commit_transaction` or :meth:`abort_transaction` is called.
+
+        Raises:
+            RuntimeError: If a transaction is already in progress.
+        """
+        if self._in_transaction:
+            raise RuntimeError("Transaction already in progress")
+        self._in_transaction = True
+        self._transaction_buffer = []
+
+    async def commit_transaction(self) -> List[RecordMetadata]:
+        """Commit the current transaction, sending all buffered messages atomically.
+
+        Returns:
+            List of metadata for each sent message.
+
+        Raises:
+            RuntimeError: If no transaction is in progress.
+        """
+        if not self._in_transaction:
+            raise RuntimeError("No transaction in progress")
+        try:
+            results: List[RecordMetadata] = []
+            if self._transaction_buffer:
+                results = await self.send_batch(self._transaction_buffer)
+            return results
+        finally:
+            self._in_transaction = False
+            self._transaction_buffer = []
+
+    async def abort_transaction(self) -> None:
+        """Abort the current transaction, discarding all buffered messages.
+
+        Raises:
+            RuntimeError: If no transaction is in progress.
+        """
+        if not self._in_transaction:
+            raise RuntimeError("No transaction in progress")
+        self._in_transaction = False
+        self._transaction_buffer = []
+
+    @property
+    def in_transaction(self) -> bool:
+        """Return True if a transaction is currently active."""
+        return self._in_transaction
 
     async def __aenter__(self) -> "Producer":
         """Enter async context manager."""

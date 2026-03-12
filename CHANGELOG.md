@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Admin: `cluster_info()` — cluster overview including broker list
+- Admin: `consumer_group_lag()` / `consumer_group_topic_lag()` — consumer group lag monitoring
+- Admin: `inspect_messages()` / `latest_messages()` — message inspection by offset
+- Admin: `metrics_history()` — server metrics history
+- Model types: `ClusterInfo`, `BrokerInfo`, `ConsumerLag`, `ConsumerGroupLag`, `InspectedMessage`, `MetricPoint`
+- New types exported from `streamline_sdk` package `__init__.py`
+
 ### Fixed
 - AI client urllib fallback now has 30-second timeout (was missing, could hang indefinitely)
 - Query client urllib fallback now has timeout to prevent event loop blocking

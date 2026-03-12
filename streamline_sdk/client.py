@@ -11,6 +11,8 @@ from .producer import Producer
 from .consumer import Consumer
 from .admin import Admin
 from .circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitBreakerOpen
+from .telemetry import StreamlineTracing
+from .metrics import ClientMetrics
 from .exceptions import ConnectionError
 
 
@@ -31,6 +33,7 @@ class ClientConfig:
         ssl_certfile: Path to client certificate.
         ssl_keyfile: Path to client key.
         circuit_breaker: Optional circuit breaker configuration for resilience.
+        enable_telemetry: Enable OpenTelemetry tracing for produce/consume operations.
     """
 
     bootstrap_servers: str = field(
@@ -48,6 +51,7 @@ class ClientConfig:
     ssl_certfile: Optional[str] = None
     ssl_keyfile: Optional[str] = None
     circuit_breaker: Optional[CircuitBreakerConfig] = None
+    enable_telemetry: bool = False
 
 
 @dataclass
@@ -147,6 +151,13 @@ class StreamlineClient:
             else None
         )
 
+        self._telemetry: Optional[StreamlineTracing] = (
+            StreamlineTracing()
+            if self._config.enable_telemetry
+            else None
+        )
+
+        self._metrics = ClientMetrics()
         self._producer: Optional[Producer] = None
         self._admin: Optional[Admin] = None
         self._started = False
@@ -218,7 +229,7 @@ class StreamlineClient:
                 "isolation_level", self._consumer_config.isolation_level
             ),
         )
-        return Consumer(self._config, config, circuit_breaker=self._circuit_breaker)
+        return Consumer(self._config, config, circuit_breaker=self._circuit_breaker, telemetry=self._telemetry)
 
     async def start(self) -> None:
         """Start the client and establish connections.
@@ -230,7 +241,9 @@ class StreamlineClient:
 
         try:
             self._producer = Producer(
-                self._config, self._producer_config, circuit_breaker=self._circuit_breaker
+                self._config, self._producer_config,
+                circuit_breaker=self._circuit_breaker,
+                telemetry=self._telemetry,
             )
             await self._producer.start()
 
@@ -270,6 +283,11 @@ class StreamlineClient:
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         """Exit the async context manager."""
         await self.close()
+
+    @property
+    def metrics(self) -> ClientMetrics:
+        """Get client metrics collector."""
+        return self._metrics
 
     @property
     def bootstrap_servers(self) -> str:

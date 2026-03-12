@@ -21,6 +21,7 @@ from .client import StreamlineClient
 from .producer import Producer, ProducerRecord, RecordMetadata
 from .consumer import Consumer, ConsumerRecord
 from .admin import Admin, TopicConfig, TopicInfo, PartitionInfo
+from .admin import ClusterInfo, BrokerInfo, ConsumerLag, ConsumerGroupLag, InspectedMessage, MetricPoint
 from .exceptions import (
     StreamlineError,
     ConnectionError,
@@ -31,6 +32,7 @@ from .exceptions import (
 from .retry import RetryConfig, retry_async, with_retry
 from .circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitBreakerOpen, CircuitState
 from .telemetry import StreamlineTracing
+from .metrics import ClientMetrics, MetricsSnapshot
 from .query import QueryClient, QueryResult
 from .ai import AIClient
 from .serializers import (
@@ -75,6 +77,9 @@ __all__ = [
     "CircuitState",
     # Telemetry
     "StreamlineTracing",
+    # Metrics
+    "ClientMetrics",
+    "MetricsSnapshot",
     # Query
     "QueryClient",
     "QueryResult",
