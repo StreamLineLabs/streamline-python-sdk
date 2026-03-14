@@ -289,6 +289,24 @@ if cb.allow():
 
 When the circuit is open, `allow()` returns `False` and operations should be skipped or rejected. See the [Circuit Breaker guide](https://streamlinelabs.dev/docs/features/circuit-breaker) for details.
 
+## Examples
+
+The [`examples/`](examples/) directory contains runnable examples:
+
+| Example | Description |
+|---------|-------------|
+| [basic_usage.py](examples/basic_usage.py) | Produce, consume, and admin operations |
+| [query_usage.py](examples/query_usage.py) | SQL analytics with the embedded query engine |
+| [schema_registry.py](examples/schema_registry.py) | Schema registration and validation |
+| [circuit_breaker.py](examples/circuit_breaker.py) | Resilient production with circuit breaker |
+| [security.py](examples/security.py) | TLS and SASL authentication |
+
+Run any example:
+
+```bash
+python examples/basic_usage.py
+```
+
 ## Contributing
 
 Contributions are welcome! Please see the [organization contributing guide](https://github.com/streamlinelabs/.github/blob/main/CONTRIBUTING.md) for guidelines.
