@@ -198,3 +198,4 @@ def test_non_retryable_error():
     policy = RetryPolicy(max_retries=5)
     err = AuthenticationError("invalid credentials")
     assert policy.should_retry_error(err) is False
+
