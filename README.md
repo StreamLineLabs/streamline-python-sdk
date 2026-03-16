@@ -151,6 +151,23 @@ with StreamlineContainer() as streamline:
 | `await producer.flush()` | Flush buffered messages |
 | `await producer.close()` | Close the producer |
 
+### Transactions
+
+```python
+async with client.producer as producer:
+    await producer.begin_transaction()
+    try:
+        await producer.send("orders", key=b"k1", value=b"v1")
+        await producer.send("orders", key=b"k2", value=b"v2")
+        await producer.commit_transaction()
+    except Exception:
+        await producer.abort_transaction()
+        raise
+```
+
+> **Note:** Transactions use client-side buffering — messages are collected and sent as a batch
+> on commit. This provides all-or-nothing delivery at the client level.
+
 ### Consumer
 
 | Method | Description |
