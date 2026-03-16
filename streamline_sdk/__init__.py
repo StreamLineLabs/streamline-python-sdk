@@ -42,6 +42,7 @@ from .serializers import (
     JsonSchemaSerializer,
 )
 from .schema_producer import SchemaProducer, SchemaConsumer, DeserializedRecord
+from .traced import TracedProducer, TracedConsumer
 
 __version__ = "0.2.0"
 
@@ -94,4 +95,7 @@ __all__ = [
     "SchemaProducer",
     "SchemaConsumer",
     "DeserializedRecord",
+    # Traced wrappers
+    "TracedProducer",
+    "TracedConsumer",
 ]

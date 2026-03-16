@@ -31,8 +31,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+schema = [
+    "avro-python3>=1.10.0",
+    "jsonschema>=4.0.0",
+]
 telemetry = [
     "opentelemetry-api>=1.20.0",
+    "opentelemetry-sdk>=1.20.0",
 ]
 dev = [
     "pytest>=8.0.0",
