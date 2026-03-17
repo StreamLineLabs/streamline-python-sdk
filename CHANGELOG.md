@@ -77,3 +77,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Testcontainers support for integration testing
 - Apache 2.0 license
 - test: expand telemetry hook coverage for async producers
+- test: add serializer roundtrip and edge case tests
