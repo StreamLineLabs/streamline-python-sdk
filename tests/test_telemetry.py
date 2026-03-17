@@ -264,7 +264,7 @@ class TestContextInjection:
         headers: dict[str, bytes] = {}
 
         with patch("streamline_sdk.telemetry.trace") as mock_trace, \
-             patch("streamline_sdk.telemetry.inject") as mock_inject:
+             patch("opentelemetry.propagate.inject") as mock_inject:
 
             # Simulate inject() populating the carrier
             def side_effect(carrier, context=None):
@@ -294,7 +294,7 @@ class TestContextExtraction:
             "tracestate": b"vendor=value",
         }
 
-        with patch("streamline_sdk.telemetry.extract") as mock_extract:
+        with patch("opentelemetry.propagate.extract") as mock_extract:
             mock_extract.return_value = MagicMock()
             result = _extract_context(headers)
 
@@ -311,7 +311,7 @@ class TestContextExtraction:
 
     @patch("streamline_sdk.telemetry._OTEL_AVAILABLE", True)
     def test_extract_handles_exception_gracefully(self):
-        with patch("streamline_sdk.telemetry.extract", side_effect=Exception("boom")):
+        with patch("opentelemetry.propagate.extract", side_effect=Exception("boom")):
             result = _extract_context({"traceparent": b"00-abc-def-01"})
 
         assert result is None
