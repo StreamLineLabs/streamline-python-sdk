@@ -208,6 +208,23 @@ class MetricPoint:
     timestamp: int = 0
 
 
+@dataclass
+class BranchInfo:
+    """Information about a copy-on-write topic branch (M5).
+
+    Attributes:
+        name: Branch name.
+        base_topic: The base topic this branch forks from.
+        state: Branch state (active, discarded, merged).
+        created_at: Creation timestamp in milliseconds since epoch.
+    """
+
+    name: str
+    base_topic: str
+    state: str = "active"
+    created_at: int = 0
+
+
 class Admin:
     """Administrative operations for Streamline.
 
@@ -398,6 +415,51 @@ class Admin:
                 with urllib.request.urlopen(req, timeout=10) as resp:
                     return json.loads(resp.read())
             return await asyncio.to_thread(_sync_get)
+
+    async def _http_post(self, path: str, body: Any) -> Any:
+        """Make an HTTP POST request to the Streamline REST API."""
+        http_url = getattr(self._client_config, "http_url", "http://localhost:9094")
+        url = f"{http_url}{path}"
+
+        if HAS_AIOHTTP:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=body, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    if resp.status == 404:
+                        raise TopicError(f"Not found: {path}")
+                    if resp.status not in (200, 201):
+                        text = await resp.text()
+                        raise TopicError(f"HTTP {resp.status}: {text}")
+                    return await resp.json()
+        else:
+            import urllib.request
+            payload = json.dumps(body).encode("utf-8")
+            req = urllib.request.Request(url, data=payload, method="POST")
+            req.add_header("Content-Type", "application/json")
+            def _sync_post():
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    return json.loads(resp.read())
+            return await asyncio.to_thread(_sync_post)
+
+    async def _http_delete(self, path: str) -> None:
+        """Make an HTTP DELETE request to the Streamline REST API."""
+        http_url = getattr(self._client_config, "http_url", "http://localhost:9094")
+        url = f"{http_url}{path}"
+
+        if HAS_AIOHTTP:
+            async with aiohttp.ClientSession() as session:
+                async with session.delete(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    if resp.status == 404:
+                        raise TopicError(f"Not found: {path}")
+                    if resp.status >= 300:
+                        text = await resp.text()
+                        raise TopicError(f"HTTP {resp.status}: {text}")
+        else:
+            import urllib.request
+            req = urllib.request.Request(url, method="DELETE")
+            def _sync_delete():
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    pass
+            await asyncio.to_thread(_sync_delete)
 
     async def list_consumer_groups(self) -> List[str]:
         """List all consumer groups.
@@ -608,6 +670,62 @@ class Admin:
             )
             for m in data
         ]
+
+    async def create_branch(
+        self, name: str, base_topic: str, base_offsets: Optional[Dict[int, int]] = None
+    ) -> "BranchInfo":
+        """Create a copy-on-write branch of a topic (M5).
+
+        Args:
+            name: Branch name.
+            base_topic: Topic to branch from.
+            base_offsets: Per-partition base offsets (partition -> offset).
+
+        Returns:
+            BranchInfo for the newly created branch.
+        """
+        body: Dict[str, Any] = {"name": name, "base_topic": base_topic}
+        if base_offsets:
+            body["base_offsets"] = base_offsets
+        data = await self._http_post("/v1/branches", body)
+        return BranchInfo(
+            name=data.get("name", name),
+            base_topic=data.get("base_topic", base_topic),
+            state=data.get("state", "active"),
+            created_at=int(data.get("created_at", 0)),
+        )
+
+    async def list_branches(self, topic: Optional[str] = None) -> List["BranchInfo"]:
+        """List copy-on-write topic branches (M5).
+
+        Args:
+            topic: Filter by base topic (optional).
+
+        Returns:
+            List of BranchInfo objects.
+        """
+        path = "/v1/branches"
+        if topic:
+            path += f"?topic={topic}"
+        data = await self._http_get(path)
+        items = data if isinstance(data, list) else data.get("items", [])
+        return [
+            BranchInfo(
+                name=b.get("name", ""),
+                base_topic=b.get("base_topic", ""),
+                state=b.get("state", "active"),
+                created_at=int(b.get("created_at", 0)),
+            )
+            for b in items
+        ]
+
+    async def discard_branch(self, branch_id: str) -> None:
+        """Discard (delete) a copy-on-write topic branch (M5).
+
+        Args:
+            branch_id: Branch identifier.
+        """
+        await self._http_delete(f"/v1/branches/{branch_id}")
 
     async def __aenter__(self) -> "Admin":
         """Enter async context manager."""

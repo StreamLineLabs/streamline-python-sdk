@@ -357,6 +357,87 @@ class Consumer:
         """Get the consumer group ID."""
         return self._consumer_config.group_id
 
+    async def search(
+        self,
+        topic: str,
+        query: str,
+        k: int = 10,
+    ) -> List["SearchHit"]:
+        """Search a topic using semantic search via the HTTP API.
+
+        Args:
+            topic: Target topic name.
+            query: Free-text search query.
+            k: Maximum number of results to return (default 10).
+
+        Returns:
+            A list of :class:`SearchHit` ordered by descending score.
+
+        Raises:
+            ConsumerError: If the search request fails.
+        """
+        try:
+            import aiohttp
+            _has_aiohttp = True
+        except ImportError:
+            _has_aiohttp = False
+
+        http_url = getattr(self._client_config, "http_url", None)
+        if http_url is None:
+            host = self._client_config.bootstrap_servers.split(",")[0].split(":")[0]
+            http_url = f"http://{host}:9094"
+
+        url = f"{http_url}/api/v1/topics/{topic}/search"
+        payload = {"query": query, "k": k}
+
+        if _has_aiohttp:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    url,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp:
+                    if resp.status != 200:
+                        body = await resp.text()
+                        raise ConsumerError(
+                            f"search failed: HTTP {resp.status}: {body}"
+                        )
+                    data = await resp.json()
+        else:
+            import json as _json
+            import urllib.request
+
+            req = urllib.request.Request(
+                url,
+                data=_json.dumps(payload).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+
+            def _sync_post():
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    if resp.status != 200:
+                        raise ConsumerError(
+                            f"search failed: HTTP {resp.status}"
+                        )
+                    return _json.loads(resp.read())
+
+            data = await asyncio.to_thread(_sync_post)
+
+        return [
+            SearchHit(
+                topic=topic,
+                partition=int(h["partition"]),
+                offset=int(h["offset"]),
+                score=float(h["score"]),
+                value=(
+                    h.get("value", "").encode()
+                    if h.get("value")
+                    else None
+                ),
+            )
+            for h in data.get("hits", [])
+        ]
+
     async def __aenter__(self) -> "Consumer":
         """Enter async context manager."""
         await self.start()
@@ -365,3 +446,100 @@ class Consumer:
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         """Exit async context manager."""
         await self.close()
+
+
+# ---------------------------------------------------------------------------
+# M2 — Semantic search (Experimental)
+# ---------------------------------------------------------------------------
+#
+# The `search()` method below issues a `POST /topics/{topic}/search` request
+# to the Streamline broker's HTTP admin port (default 9094). When the broker
+# negotiates Kafka API key 80 (StreamlineSearch) via ApiVersions, a future
+# revision of this SDK will switch to the wire-protocol path automatically.
+#
+# Stability tier: Experimental. The API may change before M2 GA.
+
+@dataclass
+class SearchHit:
+    """A single semantic-search result.
+
+    Attributes:
+        topic: Topic the hit came from.
+        partition: Partition number.
+        offset: Record offset.
+        score: Similarity score (cosine; higher = more relevant).
+        value: Record value (bytes) when ``include_value=True``, else ``None``.
+    """
+
+    topic: str
+    partition: int
+    offset: int
+    score: float
+    value: Optional[bytes] = None
+
+
+async def search(
+    bootstrap_servers: str,
+    topic: str,
+    query: str,
+    k: int = 10,
+    include_value: bool = False,
+    admin_port: int = 9094,
+    timeout: float = 5.0,
+) -> List[SearchHit]:
+    """Run a semantic search against a topic configured with ``semantic.embed=true``.
+
+    Args:
+        bootstrap_servers: Kafka bootstrap servers (e.g., ``"localhost:9092"``).
+            The hostname is reused for the HTTP search endpoint.
+        topic: Target topic name.
+        query: Free-text query.
+        k: Number of nearest neighbors (default 10).
+        include_value: If True, broker rehydrates record values into the response.
+        admin_port: HTTP admin port (default 9094).
+        timeout: HTTP request timeout in seconds.
+
+    Returns:
+        A list of :class:`SearchHit` ordered by descending score.
+
+    Raises:
+        ConsumerError: If the topic is not configured for semantic indexing
+            or the broker rejects the request.
+
+    Example:
+        >>> hits = await search("localhost:9092", "logs", "payment failure", k=5)
+        >>> for h in hits:
+        ...     print(h.partition, h.offset, h.score)
+    """
+    try:
+        import aiohttp
+    except ImportError as exc:
+        raise ConsumerError(
+            "search() requires the 'aiohttp' extra: pip install streamline-sdk[search]"
+        ) from exc
+
+    host = bootstrap_servers.split(",")[0].split(":")[0]
+    url = f"http://{host}:{admin_port}/topics/{topic}/search"
+    qs = "?include=value" if include_value else ""
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            url + qs,
+            json={"query": query, "k": k},
+            timeout=aiohttp.ClientTimeout(total=timeout),
+        ) as resp:
+            if resp.status != 200:
+                body = await resp.text()
+                raise ConsumerError(f"search failed: HTTP {resp.status}: {body}")
+            data = await resp.json()
+
+    return [
+        SearchHit(
+            topic=topic,
+            partition=int(h["partition"]),
+            offset=int(h["offset"]),
+            score=float(h["score"]),
+            value=h.get("value", "").encode() if include_value and h.get("value") else None,
+        )
+        for h in data.get("hits", [])
+    ]

@@ -95,3 +95,34 @@ class RateLimitError(StreamlineError):
             hint="Reduce request rate or increase broker rate limits",
             retryable=True,
         )
+
+
+class ContractViolationError(StreamlineError):
+    """Raised when a record violates a topic's data contract."""
+    pass
+
+
+class AttestationVerificationError(StreamlineError):
+    """Raised when attestation signature verification fails."""
+    pass
+
+
+class MemoryAccessDeniedError(StreamlineError):
+    """Raised when an agent lacks permission to access memory."""
+    pass
+
+
+class BranchQuotaExceededError(StreamlineError):
+    """Raised when a branch exceeds its storage/lifetime quota."""
+    pass
+
+
+class SemanticSearchUnavailableError(StreamlineError):
+    """Raised when semantic search is unavailable (embedding provider down)."""
+
+    def __init__(self, *args, hint: str | None = None, **kwargs):
+        super().__init__(
+            *args,
+            hint=hint or "Check embedding provider connectivity and configuration",
+            **kwargs,
+        )

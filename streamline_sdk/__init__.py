@@ -19,9 +19,9 @@ Example usage:
 
 from .client import StreamlineClient
 from .producer import Producer, ProducerRecord, RecordMetadata
-from .consumer import Consumer, ConsumerRecord
+from .consumer import Consumer, ConsumerRecord, SearchHit
 from .admin import Admin, TopicConfig, TopicInfo, PartitionInfo
-from .admin import ClusterInfo, BrokerInfo, ConsumerLag, ConsumerGroupLag, InspectedMessage, MetricPoint
+from .admin import ClusterInfo, BrokerInfo, ConsumerLag, ConsumerGroupLag, InspectedMessage, MetricPoint, BranchInfo
 from .exceptions import (
     StreamlineError,
     ConnectionError,
@@ -43,6 +43,40 @@ from .serializers import (
 )
 from .schema_producer import SchemaProducer, SchemaConsumer, DeserializedRecord
 from .traced import TracedProducer, TracedConsumer
+from .branches_admin import (
+    BranchAdminClient,
+    BranchAdminError,
+    BranchMessage,
+    BranchView,
+)
+from .contracts import (
+    ContractsClient,
+    ContractsError,
+    ValidationError,
+    ValidationResult,
+)
+from .attestation import (
+    ATTEST_HEADER,
+    Attestor,
+    AttestationError,
+    SignedAttestation,
+)
+from .verifier import (
+    StreamlineVerifier,
+    VerificationResult as AttestationVerificationResult,
+)
+from .search import (
+    SearchClient,
+    SearchError,
+    SearchHit,
+    SearchResult,
+)
+from .memory import (
+    MemoryClient,
+    MemoryError,
+    RecalledMemory,
+    WrittenEntry,
+)
 
 __version__ = "0.2.0"
 
@@ -61,6 +95,7 @@ __all__ = [
     "TopicConfig",
     "TopicInfo",
     "PartitionInfo",
+    "BranchInfo",
     # Exceptions
     "StreamlineError",
     "ConnectionError",
@@ -98,4 +133,32 @@ __all__ = [
     # Traced wrappers
     "TracedProducer",
     "TracedConsumer",
+    # Branches admin (M5 P1)
+    "BranchAdminClient",
+    "BranchAdminError",
+    "BranchMessage",
+    "BranchView",
+    # Contracts validate (M2)
+    "ContractsClient",
+    "ContractsError",
+    "ValidationError",
+    "ValidationResult",
+    # Attestation (M4)
+    "ATTEST_HEADER",
+    "Attestor",
+    "AttestationError",
+    "SignedAttestation",
+    # Local attestation verifier
+    "StreamlineVerifier",
+    "AttestationVerificationResult",
+    # Semantic search (M2)
+    "SearchClient",
+    "SearchError",
+    "SearchHit",
+    "SearchResult",
+    # Agent Memory (M1)
+    "MemoryClient",
+    "MemoryError",
+    "RecalledMemory",
+    "WrittenEntry",
 ]
