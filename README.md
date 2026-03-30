@@ -324,6 +324,55 @@ Run any example:
 python examples/basic_usage.py
 ```
 
+## Moonshot Features
+
+> ⚠️ **Experimental** — These features require Streamline server 0.3.0+ with moonshot feature flags enabled.
+
+### Semantic Search
+
+Query topics by meaning instead of offset. Requires a topic created with `semantic.embed=true`.
+
+```python
+results = await consumer.search("logs.app", "payment failure", k=10)
+for hit in results:
+    print(f"[p{hit.partition}] offset={hit.offset} score={hit.score:.2f}")
+```
+
+### Attestation Verification
+
+Verify cryptographic provenance attestations attached to records by data contracts.
+
+```python
+from streamline_sdk import StreamlineVerifier
+
+verifier = StreamlineVerifier(public_key_bytes)
+result = verifier.verify(record)
+print(f"Verified: {result.verified}, Producer: {result.producer_id}")
+```
+
+### Agent Memory (MCP)
+
+Use Streamline as persistent memory for AI agents via the MCP protocol.
+
+```python
+from streamline_sdk import MemoryClient
+
+memory = MemoryClient("http://localhost:9094/mcp/v1")
+await memory.remember("user prefers dark mode", tags=["preferences"])
+results = await memory.recall("user preferences", k=5)
+```
+
+### Branched Streams
+
+Create topic branches for replay, A/B testing, or counterfactual analysis.
+
+```python
+branch = await admin.create_branch("events", "experiment-v2")
+# Consume from the branch independently
+async for msg in consumer.consume(branch.topic):
+    process(msg)
+```
+
 ## Contributing
 
 Contributions are welcome! Please see the [organization contributing guide](https://github.com/streamlinelabs/.github/blob/main/CONTRIBUTING.md) for guidelines.

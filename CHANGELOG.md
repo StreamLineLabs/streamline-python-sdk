@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Moonshot HTTP modules under `streamline_sdk`:
+  - `branches_admin.BranchesClient` (M5)
+  - `contracts.ContractsClient` (M4)
+  - `attestation.AttestationClient` (M4)
+  - `search.SearchClient` (M2)
+  - `memory.MemoryClient` (M1)
+- Each client is sync-friendly and uses `httpx` under the hood.
+
+### Added
 - Admin: `cluster_info()` — cluster overview including broker list
 - Admin: `consumer_group_lag()` / `consumer_group_topic_lag()` — consumer group lag monitoring
 - Admin: `inspect_messages()` / `latest_messages()` — message inspection by offset
