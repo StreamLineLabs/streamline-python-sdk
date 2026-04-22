@@ -32,6 +32,7 @@ class ClientConfig:
         ssl_cafile: Path to CA certificate.
         ssl_certfile: Path to client certificate.
         ssl_keyfile: Path to client key.
+        http_url: HTTP API base URL for REST endpoints.
         circuit_breaker: Optional circuit breaker configuration for resilience.
         enable_telemetry: Enable OpenTelemetry tracing for produce/consume operations.
     """
@@ -50,6 +51,9 @@ class ClientConfig:
     ssl_cafile: Optional[str] = None
     ssl_certfile: Optional[str] = None
     ssl_keyfile: Optional[str] = None
+    http_url: str = field(
+        default_factory=lambda: os.environ.get("STREAMLINE_HTTP_URL", "http://localhost:9094")
+    )
     circuit_breaker: Optional[CircuitBreakerConfig] = None
     enable_telemetry: bool = False
 

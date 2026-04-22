@@ -97,6 +97,12 @@ class RateLimitError(StreamlineError):
         )
 
 
+class ConfigurationError(StreamlineError):
+    """Raised when a configuration value is invalid."""
+
+    pass
+
+
 class ContractViolationError(StreamlineError):
     """Raised when a record violates a topic's data contract."""
     pass

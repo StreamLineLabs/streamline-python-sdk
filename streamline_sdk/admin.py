@@ -11,6 +11,7 @@ from aiokafka.admin import AIOKafkaAdminClient, NewTopic
 from aiokafka.errors import KafkaError
 
 from .exceptions import TopicError
+from .validation import validate_topic_name
 
 try:
     import aiohttp
@@ -288,6 +289,8 @@ class Admin:
         if self._admin is None:
             raise TopicError("Admin client not started")
 
+        validate_topic_name(config.name)
+
         new_topic = NewTopic(
             name=config.name,
             num_partitions=config.num_partitions,
@@ -308,6 +311,9 @@ class Admin:
         """
         if self._admin is None:
             raise TopicError("Admin client not started")
+
+        for c in configs:
+            validate_topic_name(c.name)
 
         new_topics = [
             NewTopic(
@@ -333,6 +339,8 @@ class Admin:
         if self._admin is None:
             raise TopicError("Admin client not started")
 
+        validate_topic_name(name)
+
         try:
             await self._admin.delete_topics([name])
         except KafkaError as e:
@@ -346,6 +354,9 @@ class Admin:
         """
         if self._admin is None:
             raise TopicError("Admin client not started")
+
+        for n in names:
+            validate_topic_name(n)
 
         try:
             await self._admin.delete_topics(names)
@@ -396,7 +407,7 @@ class Admin:
 
     async def _http_get(self, path: str) -> Any:
         """Make an HTTP GET request to the Streamline REST API."""
-        http_url = getattr(self._client_config, "http_url", "http://localhost:9094")
+        http_url = self._client_config.http_url
         url = f"{http_url}{path}"
 
         if HAS_AIOHTTP:
@@ -418,7 +429,7 @@ class Admin:
 
     async def _http_post(self, path: str, body: Any) -> Any:
         """Make an HTTP POST request to the Streamline REST API."""
-        http_url = getattr(self._client_config, "http_url", "http://localhost:9094")
+        http_url = self._client_config.http_url
         url = f"{http_url}{path}"
 
         if HAS_AIOHTTP:
@@ -442,7 +453,7 @@ class Admin:
 
     async def _http_delete(self, path: str) -> None:
         """Make an HTTP DELETE request to the Streamline REST API."""
-        http_url = getattr(self._client_config, "http_url", "http://localhost:9094")
+        http_url = self._client_config.http_url
         url = f"{http_url}{path}"
 
         if HAS_AIOHTTP:

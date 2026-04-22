@@ -16,6 +16,7 @@ from .exceptions import (
     ConnectionError as _ConnectionError,
     TimeoutError as _TimeoutError,
 )
+from .validation import validate_topic_name
 
 if TYPE_CHECKING:
     from .circuit_breaker import CircuitBreaker
@@ -130,6 +131,9 @@ class Consumer:
         """
         if self._consumer is None:
             raise ConsumerError("Consumer not started")
+
+        for t in topics:
+            validate_topic_name(t)
 
         self._consumer.subscribe(topics)
         self._subscribed_topics = set(topics)
@@ -382,10 +386,7 @@ class Consumer:
         except ImportError:
             _has_aiohttp = False
 
-        http_url = getattr(self._client_config, "http_url", None)
-        if http_url is None:
-            host = self._client_config.bootstrap_servers.split(",")[0].split(":")[0]
-            http_url = f"http://{host}:9094"
+        http_url = self._client_config.http_url
 
         url = f"{http_url}/api/v1/topics/{topic}/search"
         payload = {"query": query, "k": k}

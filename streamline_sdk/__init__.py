@@ -21,16 +21,30 @@ from .client import StreamlineClient
 from .producer import Producer, ProducerRecord, RecordMetadata
 from .consumer import Consumer, ConsumerRecord, SearchHit
 from .admin import Admin, TopicConfig, TopicInfo, PartitionInfo
-from .admin import ClusterInfo, BrokerInfo, ConsumerLag, ConsumerGroupLag, InspectedMessage, MetricPoint, BranchInfo
+from .admin import (
+    ClusterInfo,
+    BrokerInfo,
+    ConsumerLag,
+    ConsumerGroupLag,
+    InspectedMessage,
+    MetricPoint,
+    BranchInfo,
+)
 from .exceptions import (
     StreamlineError,
     ConnectionError,
     ProducerError,
     ConsumerError,
     TopicError,
+    ConfigurationError,
 )
 from .retry import RetryConfig, retry_async, with_retry
-from .circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitBreakerOpen, CircuitState
+from .circuit_breaker import (
+    CircuitBreaker,
+    CircuitBreakerConfig,
+    CircuitBreakerOpen,
+    CircuitState,
+)
 from .telemetry import StreamlineTracing
 from .metrics import ClientMetrics, MetricsSnapshot
 from .query import QueryClient, QueryResult
@@ -65,6 +79,7 @@ from .verifier import (
     StreamlineVerifier,
     VerificationResult as AttestationVerificationResult,
 )
+from .validation import validate_topic_name
 from .search import (
     SearchClient,
     SearchError,
@@ -102,10 +117,13 @@ __all__ = [
     "ProducerError",
     "ConsumerError",
     "TopicError",
+    "ConfigurationError",
     # Retry
     "RetryConfig",
     "retry_async",
     "with_retry",
+    # Validation
+    "validate_topic_name",
     # Circuit Breaker
     "CircuitBreaker",
     "CircuitBreakerConfig",

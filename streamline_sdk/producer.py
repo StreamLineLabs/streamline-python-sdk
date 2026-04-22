@@ -16,6 +16,7 @@ from .exceptions import (
     ConnectionError as _ConnectionError,
     TimeoutError as _TimeoutError,
 )
+from .validation import validate_topic_name
 
 if TYPE_CHECKING:
     from .circuit_breaker import CircuitBreaker
@@ -174,6 +175,8 @@ class Producer:
         """
         if self._producer is None:
             raise ProducerError("Producer not started")
+
+        validate_topic_name(topic)
 
         # Convert headers to list of tuples
         header_list = None
