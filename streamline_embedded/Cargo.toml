@@ -1,6 +1,6 @@
 [package]
 name = "streamline-python-embedded"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Python bindings for Embedded Streamline (no Docker required)"
 license = "Apache-2.0"
