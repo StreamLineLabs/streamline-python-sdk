@@ -4,7 +4,6 @@ Integration tests for StreamlineContainer.
 
 import pytest
 import requests
-
 from streamline_testcontainers import StreamlineContainer
 
 
@@ -55,7 +54,7 @@ class TestKafkaIntegration:
     def test_produce_and_consume(self, streamline):
         """Should be able to produce and consume messages."""
         pytest.importorskip("kafka")
-        from kafka import KafkaProducer, KafkaConsumer
+        from kafka import KafkaConsumer, KafkaProducer
 
         topic = "test-topic"
         message = b"Hello, Streamline!"

@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
 from dataclasses import dataclass, field
-from typing import Optional
 
-from .producer import Producer
-from .consumer import Consumer
 from .admin import Admin
-from .circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitBreakerOpen
-from .telemetry import StreamlineTracing
-from .metrics import ClientMetrics
+from .circuit_breaker import CircuitBreaker, CircuitBreakerConfig
+from .consumer import Consumer
 from .exceptions import ConnectionError
+from .metrics import ClientMetrics
+from .producer import Producer
+from .telemetry import StreamlineTracing
 
 
 @dataclass
@@ -38,23 +36,25 @@ class ClientConfig:
     """
 
     bootstrap_servers: str = field(
-        default_factory=lambda: os.environ.get("STREAMLINE_BOOTSTRAP_SERVERS", "localhost:9092")
+        default_factory=lambda: os.environ.get(
+            "STREAMLINE_BOOTSTRAP_SERVERS", "localhost:9092"
+        )
     )
     client_id: str = "streamline-python-client"
     request_timeout_ms: int = 30000
     connection_timeout_ms: int = 10000
     metadata_max_age_ms: int = 300000
     security_protocol: str = "PLAINTEXT"
-    sasl_mechanism: Optional[str] = None
-    sasl_username: Optional[str] = None
-    sasl_password: Optional[str] = None
-    ssl_cafile: Optional[str] = None
-    ssl_certfile: Optional[str] = None
-    ssl_keyfile: Optional[str] = None
+    sasl_mechanism: str | None = None
+    sasl_username: str | None = None
+    sasl_password: str | None = None
+    ssl_cafile: str | None = None
+    ssl_certfile: str | None = None
+    ssl_keyfile: str | None = None
     http_url: str = field(
         default_factory=lambda: os.environ.get("STREAMLINE_HTTP_URL", "http://localhost:9094")
     )
-    circuit_breaker: Optional[CircuitBreakerConfig] = None
+    circuit_breaker: CircuitBreakerConfig | None = None
     enable_telemetry: bool = False
 
 
@@ -96,7 +96,7 @@ class ConsumerConfig:
         isolation_level: Transaction isolation (read_uncommitted, read_committed).
     """
 
-    group_id: Optional[str] = None
+    group_id: str | None = None
     auto_offset_reset: str = "latest"
     enable_auto_commit: bool = True
     auto_commit_interval_ms: int = 5000
@@ -119,12 +119,14 @@ class StreamlineClient:
 
     def __init__(
         self,
-        bootstrap_servers: str = os.environ.get("STREAMLINE_BOOTSTRAP_SERVERS", "localhost:9092"),
+        bootstrap_servers: str = os.environ.get(
+            "STREAMLINE_BOOTSTRAP_SERVERS", "localhost:9092"
+        ),
         *,
         client_id: str = "streamline-python-client",
-        client_config: Optional[ClientConfig] = None,
-        producer_config: Optional[ProducerConfig] = None,
-        consumer_config: Optional[ConsumerConfig] = None,
+        client_config: ClientConfig | None = None,
+        producer_config: ProducerConfig | None = None,
+        consumer_config: ConsumerConfig | None = None,
         **kwargs,
     ):
         """Initialize the client.
@@ -149,21 +151,21 @@ class StreamlineClient:
         self._producer_config = producer_config or ProducerConfig()
         self._consumer_config = consumer_config or ConsumerConfig()
 
-        self._circuit_breaker: Optional[CircuitBreaker] = (
+        self._circuit_breaker: CircuitBreaker | None = (
             CircuitBreaker(self._config.circuit_breaker)
             if self._config.circuit_breaker is not None
             else None
         )
 
-        self._telemetry: Optional[StreamlineTracing] = (
+        self._telemetry: StreamlineTracing | None = (
             StreamlineTracing()
             if self._config.enable_telemetry
             else None
         )
 
         self._metrics = ClientMetrics()
-        self._producer: Optional[Producer] = None
-        self._admin: Optional[Admin] = None
+        self._producer: Producer | None = None
+        self._admin: Admin | None = None
         self._started = False
         self._closed = False
 
@@ -178,7 +180,9 @@ class StreamlineClient:
             ConnectionError: If client is not started.
         """
         if self._producer is None:
-            raise ConnectionError("Client not started. Use 'async with' context manager.")
+            raise ConnectionError(
+                "Client not started. Use 'async with' context manager."
+            )
         return self._producer
 
     @property
@@ -192,12 +196,14 @@ class StreamlineClient:
             ConnectionError: If client is not started.
         """
         if self._admin is None:
-            raise ConnectionError("Client not started. Use 'async with' context manager.")
+            raise ConnectionError(
+                "Client not started. Use 'async with' context manager."
+            )
         return self._admin
 
     def consumer(
         self,
-        group_id: Optional[str] = None,
+        group_id: str | None = None,
         **kwargs,
     ) -> Consumer:
         """Create a new consumer.
@@ -233,7 +239,12 @@ class StreamlineClient:
                 "isolation_level", self._consumer_config.isolation_level
             ),
         )
-        return Consumer(self._config, config, circuit_breaker=self._circuit_breaker, telemetry=self._telemetry)
+        return Consumer(
+            self._config,
+            config,
+            circuit_breaker=self._circuit_breaker,
+            telemetry=self._telemetry,
+        )
 
     async def start(self) -> None:
         """Start the client and establish connections.
@@ -279,7 +290,7 @@ class StreamlineClient:
 
         self._started = False
 
-    async def __aenter__(self) -> "StreamlineClient":
+    async def __aenter__(self) -> StreamlineClient:
         """Enter the async context manager."""
         await self.start()
         return self

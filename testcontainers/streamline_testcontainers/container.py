@@ -2,7 +2,7 @@
 Streamline container implementation for Testcontainers.
 """
 
-from typing import Optional
+from __future__ import annotations
 
 from testcontainers.core.container import DockerContainer
 from testcontainers.core.waiting_utils import wait_for_logs
@@ -55,7 +55,7 @@ class StreamlineContainer(DockerContainer):
         self.with_env("STREAMLINE_HTTP_ADDR", f"0.0.0.0:{self.HTTP_PORT}")
         self.with_env("STREAMLINE_LOG_LEVEL", log_level)
 
-    def start(self) -> "StreamlineContainer":
+    def start(self) -> StreamlineContainer:
         """
         Start the container and wait for it to be ready.
 
@@ -133,7 +133,7 @@ class StreamlineContainer(DockerContainer):
         if exit_code != 0:
             raise RuntimeError(f"Failed to create topic '{name}': {output}")
 
-    def with_debug_logging(self) -> "StreamlineContainer":
+    def with_debug_logging(self) -> StreamlineContainer:
         """
         Enable debug logging.
 
@@ -143,7 +143,7 @@ class StreamlineContainer(DockerContainer):
         self.with_env("STREAMLINE_LOG_LEVEL", "debug")
         return self
 
-    def with_trace_logging(self) -> "StreamlineContainer":
+    def with_trace_logging(self) -> StreamlineContainer:
         """
         Enable trace logging.
 
@@ -153,7 +153,7 @@ class StreamlineContainer(DockerContainer):
         self.with_env("STREAMLINE_LOG_LEVEL", "trace")
         return self
 
-    def with_in_memory(self) -> "StreamlineContainer":
+    def with_in_memory(self) -> StreamlineContainer:
         """
         Enable in-memory storage mode (no disk persistence).
 
@@ -163,7 +163,7 @@ class StreamlineContainer(DockerContainer):
         self.with_env("STREAMLINE_IN_MEMORY", "true")
         return self
 
-    def with_playground(self) -> "StreamlineContainer":
+    def with_playground(self) -> StreamlineContainer:
         """
         Enable playground mode (pre-loaded demo topics).
 
@@ -186,7 +186,7 @@ class StreamlineContainer(DockerContainer):
         for name, partitions in topics.items():
             self.create_topic(name, partitions)
 
-    def produce_message(self, topic: str, value: str, key: Optional[str] = None) -> None:
+    def produce_message(self, topic: str, value: str, key: str | None = None) -> None:
         """
         Produce a single message to a topic.
 
@@ -375,12 +375,12 @@ class StreamlineContainer(DockerContainer):
         Returns:
             Cluster info as a dictionary
         """
-        import urllib.request
         import json
+        import urllib.request
         resp = urllib.request.urlopen(self.get_info_url(), timeout=5)
         return json.loads(resp.read().decode())
 
-    def with_authentication(self, username: str, password: str) -> "StreamlineContainer":
+    def with_authentication(self, username: str, password: str) -> StreamlineContainer:
         """
         Enable SASL/PLAIN authentication.
 
@@ -396,7 +396,9 @@ class StreamlineContainer(DockerContainer):
         self.with_env("STREAMLINE_AUTH_DEFAULT_PASSWORD", password)
         return self
 
-    def with_auto_create_topics(self, default_partitions: int = 1) -> "StreamlineContainer":
+    def with_auto_create_topics(
+        self, default_partitions: int = 1
+    ) -> StreamlineContainer:
         """
         Enable auto-topic creation with a default partition count.
 
@@ -411,7 +413,7 @@ class StreamlineContainer(DockerContainer):
         return self
 
     @classmethod
-    def as_kafka_replacement(cls) -> "StreamlineContainer":
+    def as_kafka_replacement(cls) -> StreamlineContainer:
         """
         Create a Streamline container configured as a drop-in Kafka replacement.
 
@@ -431,7 +433,7 @@ class StreamlineContainer(DockerContainer):
     @classmethod
     def with_pre_configured_topics(
         cls, topics: dict[str, int]
-    ) -> "StreamlineContainer":
+    ) -> StreamlineContainer:
         """
         Create a container pre-configured with topics.
 
@@ -446,7 +448,7 @@ class StreamlineContainer(DockerContainer):
             container.with_env(f"STREAMLINE_AUTO_TOPIC_{name}", str(partitions))
         return container
 
-    def with_ephemeral(self) -> "StreamlineContainer":
+    def with_ephemeral(self) -> StreamlineContainer:
         """
         Enable ephemeral mode: in-memory, auto-cleanup, fastest startup.
 
@@ -460,7 +462,7 @@ class StreamlineContainer(DockerContainer):
         self.with_env("STREAMLINE_IN_MEMORY", "true")
         return self
 
-    def with_ephemeral_idle_timeout(self, seconds: int) -> "StreamlineContainer":
+    def with_ephemeral_idle_timeout(self, seconds: int) -> StreamlineContainer:
         """
         Set the idle timeout before ephemeral server auto-shuts down.
 
@@ -473,7 +475,7 @@ class StreamlineContainer(DockerContainer):
         self.with_env("STREAMLINE_EPHEMERAL_IDLE_TIMEOUT", str(seconds))
         return self
 
-    def with_ephemeral_auto_topics(self, topic_specs: str) -> "StreamlineContainer":
+    def with_ephemeral_auto_topics(self, topic_specs: str) -> StreamlineContainer:
         """
         Auto-create topics on startup in ephemeral mode.
 
@@ -488,7 +490,7 @@ class StreamlineContainer(DockerContainer):
         return self
 
     @classmethod
-    def for_testing(cls) -> "StreamlineContainer":
+    def for_testing(cls) -> StreamlineContainer:
         """
         Create a container optimized for CI/CD testing.
 

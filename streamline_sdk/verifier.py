@@ -9,7 +9,7 @@ from __future__ import annotations
 import base64
 import json
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Union
+from typing import Any
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
@@ -23,13 +23,15 @@ class VerificationResult:
 
     verified: bool
     producer_id: str = ""
-    schema_id: Optional[int] = None
-    contract_id: Optional[str] = None
+    schema_id: int | None = None
+    contract_id: str | None = None
     timestamp_ms: int = 0
 
 
 class StreamlineVerifier:
-    """Verifies attestation headers on consumed records using a local Ed25519 public key.
+    """Verifies attestation headers on consumed records.
+
+    Uses a local Ed25519 public key, with no network calls.
 
     Args:
         public_key: An Ed25519 public key used for signature verification.
@@ -63,13 +65,15 @@ class StreamlineVerifier:
         Returns:
             VerificationResult with ``verified=True`` if the signature is valid.
         """
-        headers: Dict[str, Union[bytes, str]] = getattr(record, "headers", {})
+        headers: dict[str, bytes | str] = getattr(record, "headers", {})
         raw = headers.get(ATTEST_HEADER)
         if raw is None:
             return VerificationResult(verified=False)
 
         try:
-            raw_bytes = raw if isinstance(raw, (bytes, bytearray)) else raw.encode("utf-8")
+            raw_bytes = (
+                raw if isinstance(raw, (bytes, bytearray)) else raw.encode("utf-8")
+            )
             attestation = json.loads(base64.b64decode(raw_bytes))
         except (json.JSONDecodeError, Exception):
             return VerificationResult(verified=False)

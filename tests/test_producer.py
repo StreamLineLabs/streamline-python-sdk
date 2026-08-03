@@ -1,12 +1,13 @@
 """Tests for Producer, ProducerRecord, and RecordMetadata."""
 
-import pytest
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from streamline_sdk.producer import Producer, ProducerRecord, RecordMetadata
+import pytest
+
 from streamline_sdk.client import ClientConfig, ProducerConfig
 from streamline_sdk.exceptions import ProducerError
+from streamline_sdk.producer import Producer, ProducerRecord, RecordMetadata
 
 
 class TestProducerRecord:

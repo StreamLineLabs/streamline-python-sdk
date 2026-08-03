@@ -36,14 +36,11 @@ from __future__ import annotations
 
 import functools
 import logging
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from typing import (
     Any,
-    AsyncIterator,
     Callable,
-    Dict,
-    Iterator,
-    Optional,
     TypeVar,
 )
 
@@ -53,13 +50,10 @@ logger = logging.getLogger(__name__)
 try:
     from opentelemetry import context as otel_context
     from opentelemetry import trace
-    from opentelemetry.context import Context
     from opentelemetry.trace import (
         SpanKind,
         StatusCode,
-        Tracer,
     )
-    from opentelemetry.trace.propagation import get_current_span
 
     _OTEL_AVAILABLE = True
 except ImportError:
@@ -74,7 +68,8 @@ class StreamlineTracing:
     When OpenTelemetry is not installed, all methods are no-ops.
 
     Args:
-        tracer_name: Name of the instrumentation scope (default: "streamline-python-sdk").
+        tracer_name: Name of the instrumentation scope
+            (default: "streamline-python-sdk").
         tracer_version: Version of the instrumentation scope (default: "0.2.0").
         enabled: Explicitly enable/disable tracing. ``None`` means auto-detect.
     """
@@ -83,7 +78,7 @@ class StreamlineTracing:
         self,
         tracer_name: str = "streamline-python-sdk",
         tracer_version: str = "0.2.0",
-        enabled: Optional[bool] = None,
+        enabled: bool | None = None,
     ) -> None:
         self._enabled = enabled if enabled is not None else _OTEL_AVAILABLE
         self._tracer: Any = None
@@ -93,8 +88,8 @@ class StreamlineTracing:
             logger.debug("OpenTelemetry tracing enabled (scope=%s)", tracer_name)
         elif self._enabled and not _OTEL_AVAILABLE:
             logger.warning(
-                "OpenTelemetry tracing requested but opentelemetry-api is not installed; "
-                "install with: pip install streamline-sdk[telemetry]"
+                "OpenTelemetry tracing requested but opentelemetry-api is not "
+                "installed; install with: pip install streamline-sdk[telemetry]"
             )
             self._enabled = False
         else:
@@ -111,7 +106,7 @@ class StreamlineTracing:
     async def trace_produce(
         self,
         topic: str,
-        headers: Optional[Dict[str, bytes]] = None,
+        headers: dict[str, bytes] | None = None,
     ) -> AsyncIterator[None]:
         """Async context manager that creates a PRODUCER span.
 
@@ -195,7 +190,7 @@ class StreamlineTracing:
         topic: str,
         partition: int,
         offset: int,
-        headers: Optional[Dict[str, bytes]] = None,
+        headers: dict[str, bytes] | None = None,
     ) -> AsyncIterator[None]:
         """Async context manager for tracing individual record processing.
 
@@ -248,7 +243,7 @@ class StreamlineTracing:
     def trace_produce_sync(
         self,
         topic: str,
-        headers: Optional[Dict[str, bytes]] = None,
+        headers: dict[str, bytes] | None = None,
     ) -> Iterator[None]:
         """Sync context manager variant of :meth:`trace_produce`."""
         if not self._enabled:
@@ -378,7 +373,7 @@ class StreamlineTracing:
 
 # ── Internal helpers ──────────────────────────────────────────────────
 
-def _inject_context(span: Any, headers: Dict[str, bytes]) -> None:
+def _inject_context(span: Any, headers: dict[str, bytes]) -> None:
     """Inject W3C traceparent into message headers."""
     if not _OTEL_AVAILABLE:
         return
@@ -386,7 +381,7 @@ def _inject_context(span: Any, headers: Dict[str, bytes]) -> None:
     try:
         from opentelemetry.propagate import inject
 
-        carrier: Dict[str, str] = {}
+        carrier: dict[str, str] = {}
         ctx = trace.set_span_in_context(span)
         inject(carrier, context=ctx)
 
@@ -396,7 +391,7 @@ def _inject_context(span: Any, headers: Dict[str, bytes]) -> None:
         logger.debug("Failed to inject trace context into headers", exc_info=True)
 
 
-def _extract_context(headers: Dict[str, bytes]) -> Optional[Any]:
+def _extract_context(headers: dict[str, bytes]) -> Any | None:
     """Extract trace context from message headers."""
     if not _OTEL_AVAILABLE:
         return None
@@ -404,7 +399,7 @@ def _extract_context(headers: Dict[str, bytes]) -> Optional[Any]:
     try:
         from opentelemetry.propagate import extract
 
-        carrier: Dict[str, str] = {}
+        carrier: dict[str, str] = {}
         for key, value in headers.items():
             if isinstance(value, bytes):
                 carrier[key] = value.decode("utf-8", errors="replace")

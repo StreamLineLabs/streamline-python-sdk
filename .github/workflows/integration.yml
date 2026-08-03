@@ -40,6 +40,7 @@ jobs:
       - name: Run integration tests
         run: pytest tests/ -v -m integration --timeout=60
         env:
+          STREAMLINE_INTEGRATION: '1'
           STREAMLINE_BOOTSTRAP_SERVERS: localhost:9092
           STREAMLINE_BOOTSTRAP: localhost:9092
           STREAMLINE_HTTP_URL: http://localhost:9094

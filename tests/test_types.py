@@ -1,19 +1,16 @@
 """Tests for type definitions in the Streamline SDK."""
 
-import pytest
 from datetime import datetime
 
 from streamline_sdk.types import (
     Message,
-    Record,
-    TopicConfig,
-    PartitionInfo,
-    TopicInfo,
-    ConsumerGroupInfo,
-    GroupMemberInfo,
     OffsetInfo,
+    PartitionInfo,
     ProduceResult,
     QueryResult,
+    Record,
+    TopicConfig,
+    TopicInfo,
 )
 
 
@@ -55,25 +52,33 @@ class TestMessage:
 
     def test_none_key(self):
         """Key can be None."""
-        msg = Message(topic="t", partition=0, offset=0, timestamp=0, key=None, value="v")
+        msg = Message(
+            topic="t", partition=0, offset=0, timestamp=0, key=None, value="v"
+        )
         assert msg.key is None
 
     def test_datetime_property(self):
         """Test the datetime property converts timestamp correctly."""
         ts_ms = 1700000000000  # 2023-11-14 22:13:20 UTC (approx)
-        msg = Message(topic="t", partition=0, offset=0, timestamp=ts_ms, key=None, value="v")
+        msg = Message(
+            topic="t", partition=0, offset=0, timestamp=ts_ms, key=None, value="v"
+        )
         dt = msg.datetime
         assert isinstance(dt, datetime)
         assert dt == datetime.fromtimestamp(ts_ms / 1000)
 
     def test_datetime_property_zero(self):
         """Timestamp of 0 should give epoch."""
-        msg = Message(topic="t", partition=0, offset=0, timestamp=0, key=None, value="v")
+        msg = Message(
+            topic="t", partition=0, offset=0, timestamp=0, key=None, value="v"
+        )
         assert msg.datetime == datetime.fromtimestamp(0)
 
     def test_repr(self):
         """Test custom __repr__."""
-        msg = Message(topic="events", partition=1, offset=42, timestamp=0, key="k1", value="v")
+        msg = Message(
+            topic="events", partition=1, offset=42, timestamp=0, key="k1", value="v"
+        )
         r = repr(msg)
         assert "Message(" in r
         assert "topic='events'" in r
@@ -86,13 +91,17 @@ class TestMessage:
 
     def test_repr_none_key(self):
         """Repr should show key=None."""
-        msg = Message(topic="t", partition=0, offset=0, timestamp=0, key=None, value="v")
+        msg = Message(
+            topic="t", partition=0, offset=0, timestamp=0, key=None, value="v"
+        )
         assert "key=None" in repr(msg)
 
     def test_value_types(self):
         """Value can be any type."""
         for val in ["string", 42, [1, 2, 3], {"a": 1}, None, b"bytes"]:
-            msg = Message(topic="t", partition=0, offset=0, timestamp=0, key=None, value=val)
+            msg = Message(
+                topic="t", partition=0, offset=0, timestamp=0, key=None, value=val
+            )
             assert msg.value == val
 
 
@@ -199,8 +208,12 @@ class TestTypesTopicInfo:
     def test_creation(self):
         """Test TopicInfo creation."""
         parts = [
-            PartitionInfo(id=0, leader=1, replicas=[1, 2], isr=[1, 2], high_watermark=100),
-            PartitionInfo(id=1, leader=2, replicas=[1, 2], isr=[1, 2], high_watermark=200),
+            PartitionInfo(
+                id=0, leader=1, replicas=[1, 2], isr=[1, 2], high_watermark=100
+            ),
+            PartitionInfo(
+                id=1, leader=2, replicas=[1, 2], isr=[1, 2], high_watermark=200
+            ),
         ]
         config = TopicConfig(partitions=2, replication_factor=2)
         info = TopicInfo(name="events", partitions=parts, config=config)
@@ -245,7 +258,9 @@ class TestOffsetInfo:
 
     def test_lag_zero(self):
         """Lag should be 0 when caught up."""
-        info = OffsetInfo(topic="t", partition=0, current_offset=100, log_end_offset=100)
+        info = OffsetInfo(
+            topic="t", partition=0, current_offset=100, log_end_offset=100
+        )
         assert info.lag == 0
 
 

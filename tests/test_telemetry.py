@@ -1,13 +1,15 @@
 """Tests for the OpenTelemetry telemetry module."""
 
-from unittest.mock import MagicMock, patch, call
+from __future__ import annotations
+
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from streamline_sdk.telemetry import (
     StreamlineTracing,
-    _inject_context,
     _extract_context,
+    _inject_context,
 )
 
 

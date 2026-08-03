@@ -20,7 +20,6 @@ from streamline_sdk import (
     WrittenEntry,
 )
 
-
 # --------------------------------------------------------------------- helpers
 
 

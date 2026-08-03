@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 try:
     import aiohttp
@@ -35,10 +35,10 @@ class SearchHit:
     partition: int
     offset: int
     score: float
-    value: Optional[str] = None
+    value: str | None = None
 
     @classmethod
-    def from_json(cls, data: dict[str, Any]) -> "SearchHit":
+    def from_json(cls, data: dict[str, Any]) -> SearchHit:
         return cls(
             partition=int(data.get("partition", 0)),
             offset=int(data.get("offset", 0)),
@@ -53,7 +53,7 @@ class SearchResult:
     took_ms: int
 
     @classmethod
-    def from_json(cls, data: dict[str, Any]) -> "SearchResult":
+    def from_json(cls, data: dict[str, Any]) -> SearchResult:
         return cls(
             hits=[SearchHit.from_json(h) for h in data.get("hits", [])],
             took_ms=int(data.get("took_ms", 0)),
@@ -78,7 +78,7 @@ class SearchClient:
         query: str,
         *,
         k: int = 10,
-        filter: Optional[dict[str, Any]] = None,
+        filter: dict[str, Any] | None = None,
     ) -> SearchResult:
         if not topic:
             raise SearchError("topic must not be empty")

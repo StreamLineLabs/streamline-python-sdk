@@ -4,9 +4,12 @@ Provides vector embeddings, semantic search, anomaly detection,
 and RAG (Retrieval-Augmented Generation) through the Streamline AI API.
 """
 
-from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Optional
+from __future__ import annotations
+
 import json
+from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
+from typing import Any
 
 try:
     import aiohttp
@@ -159,7 +162,7 @@ class AIClient:
             model=data.get("model", model),
         )
 
-    async def _post(self, path: str, payload: dict) -> dict:
+    async def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Make a POST request to the AI API."""
         if HAS_AIOHTTP:
             async with aiohttp.ClientSession() as session:
@@ -170,7 +173,8 @@ class AIClient:
                     if resp.status != 200:
                         text = await resp.text()
                         raise RuntimeError(f"AI API error ({resp.status}): {text}")
-                    return await resp.json()
+                    data: dict[str, Any] = await resp.json()
+                    return data
         else:
             import urllib.request
             req = urllib.request.Request(
@@ -179,4 +183,5 @@ class AIClient:
                 headers={"Content-Type": "application/json"},
             )
             with urllib.request.urlopen(req, timeout=30) as resp:
-                return json.loads(resp.read())
+                body: dict[str, Any] = json.loads(resp.read())
+                return body

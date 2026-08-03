@@ -35,7 +35,7 @@ pip install -e ".[dev]"
 ## Running Tests
 
 ```bash
-# Run all tests
+# Run all tests (self-contained — no server required)
 pytest tests/ -v
 
 # Run a specific test file
@@ -47,17 +47,26 @@ pytest tests/ --cov=streamline --cov-report=term-missing
 
 ### Integration Tests
 
-Integration tests require a running Streamline server:
+Integration tests require a running Streamline server. They are marked
+`integration` and skipped by the default run unless `STREAMLINE_INTEGRATION=1`
+is set:
 
 ```bash
 # Start the server
 docker compose -f docker-compose.test.yml up -d
 
 # Run integration tests
-pytest tests/ -v -m integration
+STREAMLINE_INTEGRATION=1 pytest tests/ -v -m integration
 
 # Stop the server
 docker compose -f docker-compose.test.yml down
+```
+
+The conformance suite under `tests/conformance/` is marked `conformance` and
+gated the same way with `CONFORMANCE=1`:
+
+```bash
+CONFORMANCE=1 pytest tests/conformance -v -m conformance
 ```
 
 ## Linting & Type Checking

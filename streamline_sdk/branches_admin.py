@@ -15,9 +15,10 @@ Example:
 from __future__ import annotations
 
 import asyncio
+import builtins
 import json
 from dataclasses import dataclass, field
-from typing import Any, Optional, Sequence
+from typing import Any
 
 try:
     import aiohttp
@@ -38,13 +39,13 @@ class BranchView:
     """A branch as returned by the admin API."""
 
     id: str
-    parent: Optional[str] = None
+    parent: str | None = None
     created_at_ms: int = 0
     message_count: int = 0
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_json(cls, data: dict[str, Any]) -> "BranchView":
+    def from_json(cls, data: dict[str, Any]) -> BranchView:
         return cls(
             id=data["id"],
             parent=data.get("parent"),
@@ -69,7 +70,7 @@ class BranchMessage:
         return out
 
     @classmethod
-    def from_json(cls, data: dict[str, Any]) -> "BranchMessage":
+    def from_json(cls, data: dict[str, Any]) -> BranchMessage:
         return cls(
             role=str(data.get("role", "")),
             text=str(data.get("text", "")),
@@ -96,8 +97,8 @@ class BranchAdminClient:
         topic: str,
         name: str,
         *,
-        parent: Optional[str] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        parent: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> BranchView:
         """Create a new branch ``<topic>/<name>``."""
         body: dict[str, Any] = {"topic": topic, "name": name}
@@ -108,7 +109,7 @@ class BranchAdminClient:
         data = await self._request("POST", "/api/v1/branches", json_body=body)
         return BranchView.from_json(data)
 
-    async def list(self) -> list[BranchView]:
+    async def list(self) -> builtins.list[BranchView]:
         """List all known branches across topics."""
         data = await self._request("GET", "/api/v1/branches")
         items = data if isinstance(data, list) else data.get("items", [])
@@ -141,7 +142,7 @@ class BranchAdminClient:
             json_body=msg.to_json(),
         )
 
-    async def messages(self, branch_id: str) -> list[BranchMessage]:
+    async def messages(self, branch_id: str) -> builtins.list[BranchMessage]:
         """Read all messages on a branch."""
         data = await self._request(
             "GET", f"/api/v1/branches/{branch_id}/messages"
@@ -155,7 +156,7 @@ class BranchAdminClient:
         method: str,
         path: str,
         *,
-        json_body: Optional[dict[str, Any]] = None,
+        json_body: dict[str, Any] | None = None,
     ) -> Any:
         url = f"{self.http_url}{path}"
 
@@ -174,10 +175,10 @@ class BranchAdminClient:
                     except json.JSONDecodeError:
                         return body_text
         else:  # urllib fallback so the SDK stays importable without aiohttp
-            import urllib.request
             import urllib.error
+            import urllib.request
 
-            data: Optional[bytes] = None
+            data: bytes | None = None
             headers = {}
             if json_body is not None:
                 data = json.dumps(json_body).encode("utf-8")

@@ -4,13 +4,13 @@ import json
 
 import pytest
 
+from streamline_sdk.exceptions import StreamlineError
 from streamline_sdk.serializers import (
     AvroSerializer,
     JsonSchemaSerializer,
     SchemaRegistryClient,
     SchemaRegistryConfig,
 )
-from streamline_sdk.exceptions import StreamlineError
 
 
 class TestSchemaRegistryConfig:
@@ -132,7 +132,10 @@ class TestJsonSchemaSerializer:
     @pytest.mark.asyncio
     async def test_serialize_validation_passes(self):
         """Valid data passes schema validation."""
-        schema = '{"type":"object","required":["name"],"properties":{"name":{"type":"string"}}}'
+        schema = (
+            '{"type":"object","required":["name"],'
+            '"properties":{"name":{"type":"string"}}}'
+        )
         serializer = JsonSchemaSerializer(schema_str=schema)
         serializer.auto_register = False
 
@@ -146,7 +149,10 @@ class TestJsonSchemaSerializer:
     @pytest.mark.asyncio
     async def test_serialize_validation_fails(self):
         """Invalid data raises StreamlineError when validation is enabled."""
-        schema = '{"type":"object","required":["name"],"properties":{"name":{"type":"string"}}}'
+        schema = (
+            '{"type":"object","required":["name"],'
+            '"properties":{"name":{"type":"string"}}}'
+        )
         serializer = JsonSchemaSerializer(schema_str=schema)
         serializer.auto_register = False
 

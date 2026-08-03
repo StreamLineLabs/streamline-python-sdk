@@ -1,12 +1,11 @@
 """Tests for StreamlineClient."""
 
-import pytest
 from streamline_sdk import (
-    StreamlineClient,
     ProducerRecord,
+    StreamlineClient,
     TopicConfig,
 )
-from streamline_sdk.client import ClientConfig, ProducerConfig, ConsumerConfig
+from streamline_sdk.client import ClientConfig, ConsumerConfig, ProducerConfig
 
 
 class TestClientConfig:

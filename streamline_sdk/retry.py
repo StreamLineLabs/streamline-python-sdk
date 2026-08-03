@@ -5,16 +5,17 @@ from __future__ import annotations
 import asyncio
 import functools
 import logging
-from typing import Any, Callable, Optional, Sequence, Type, TypeVar
+from collections.abc import Sequence
+from typing import Any, Callable, TypeVar
 
-from .exceptions import StreamlineError, ConnectionError, TimeoutError
+from .exceptions import ConnectionError, TimeoutError
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
 # Exceptions that are safe to retry by default
-DEFAULT_RETRYABLE_EXCEPTIONS: tuple[Type[Exception], ...] = (
+DEFAULT_RETRYABLE_EXCEPTIONS: tuple[type[Exception], ...] = (
     ConnectionError,
     TimeoutError,
     OSError,
@@ -39,7 +40,7 @@ class RetryConfig:
         initial_backoff_ms: int = 100,
         max_backoff_ms: int = 10000,
         backoff_multiplier: float = 2.0,
-        retryable_exceptions: Optional[Sequence[Type[Exception]]] = None,
+        retryable_exceptions: Sequence[type[Exception]] | None = None,
     ):
         if max_retries < 0:
             raise ValueError("max_retries must be >= 0")
@@ -62,7 +63,7 @@ class RetryConfig:
 async def retry_async(
     func: Callable[..., Any],
     *args: Any,
-    config: Optional[RetryConfig] = None,
+    config: RetryConfig | None = None,
     **kwargs: Any,
 ) -> Any:
     """Execute an async function with retry logic.
@@ -80,7 +81,7 @@ async def retry_async(
         The last exception if all retries are exhausted.
     """
     cfg = config or RetryConfig()
-    last_exception: Optional[Exception] = None
+    last_exception: Exception | None = None
     backoff_ms = cfg.initial_backoff_ms
 
     for attempt in range(cfg.max_retries + 1):
@@ -110,7 +111,7 @@ async def retry_async(
     raise last_exception  # type: ignore[misc]
 
 
-def with_retry(config: Optional[RetryConfig] = None) -> Callable:
+def with_retry(config: RetryConfig | None = None) -> Callable:
     """Decorator that adds retry logic to an async function.
 
     Args:
@@ -149,7 +150,7 @@ class RetryPolicy:
     def __init__(
         self,
         max_retries: int = 3,
-        retryable_exceptions: Optional[Sequence[Type[Exception]]] = None,
+        retryable_exceptions: Sequence[type[Exception]] | None = None,
     ):
         self.max_retries = max_retries
         self.retryable_exceptions = tuple(
@@ -175,7 +176,7 @@ class RetryPolicy:
 
 class ExponentialJitterBackoff:
     """Exponential backoff with full jitter for retry operations.
-    
+
     Uses the "Full Jitter" algorithm from AWS Architecture Blog:
     sleep = random_between(0, min(cap, base * 2 ** attempt))
     """

@@ -2,14 +2,22 @@
 SDK Conformance Tests — Reference Implementation (Python)
 
 Implements the 46 required tests from CONFORMANCE_SPEC.md v1.0.0.
-Run with: pytest tests/test_conformance.py -v
+
+These tests require a running Streamline server and are skipped by the
+default ``pytest tests/`` run. Enable them explicitly with::
+
+    STREAMLINE_INTEGRATION=1 pytest tests/test_conformance.py -m integration
 
 Each test is prefixed with its spec ID (C01, T01, P01, etc.) for traceability.
 Uses the Testcontainers module for container lifecycle management.
 """
 
+from __future__ import annotations
+
 import json
+import os
 import time
+
 import pytest
 
 try:
@@ -32,13 +40,11 @@ HTTP_URL = "http://localhost:9094"
 
 def get_bootstrap():
     """Get bootstrap servers from env or default."""
-    import os
     return os.environ.get("STREAMLINE_BOOTSTRAP", BOOTSTRAP)
 
 
 def get_http_url():
     """Get HTTP URL from env or default."""
-    import os
     return os.environ.get("STREAMLINE_HTTP_URL", HTTP_URL)
 
 
@@ -138,7 +144,6 @@ class TestTopics:
     def test_T05_topic_create_duplicate(self):
         """T05: Duplicate creation returns error."""
         from kafka.admin import KafkaAdminClient, NewTopic
-        from kafka.errors import TopicAlreadyExistsError
         admin = KafkaAdminClient(bootstrap_servers=get_bootstrap())
         topic = f"{self.TOPIC_PREFIX}t05"
         try:
@@ -209,7 +214,10 @@ class TestProducer:
     def test_P05_produce_large_value(self):
         """P05: Produce 1MB message."""
         from kafka import KafkaProducer
-        p = KafkaProducer(bootstrap_servers=get_bootstrap(), max_request_size=2*1024*1024)
+
+        p = KafkaProducer(
+            bootstrap_servers=get_bootstrap(), max_request_size=2 * 1024 * 1024
+        )
         big = b"x" * (1024 * 1024)
         result = p.send(self.TOPIC, value=big).get(timeout=30)
         assert result.offset >= 0
@@ -220,7 +228,9 @@ class TestProducer:
         from kafka import KafkaProducer
         p = KafkaProducer(bootstrap_servers=get_bootstrap())
         headers = [("x-trace-id", b"abc123"), ("x-source", b"test")]
-        result = p.send(self.TOPIC, value=b"with-headers", headers=headers).get(timeout=10)
+        result = p.send(self.TOPIC, value=b"with-headers", headers=headers).get(
+            timeout=10
+        )
         assert result.offset >= 0
         p.close()
 
@@ -229,7 +239,9 @@ class TestProducer:
         from kafka import KafkaProducer
         p = KafkaProducer(bootstrap_servers=get_bootstrap())
         for partition in range(3):
-            result = p.send(self.TOPIC, partition=partition, value=f"p{partition}".encode()).get(timeout=10)
+            result = p.send(
+                self.TOPIC, partition=partition, value=f"p{partition}".encode()
+            ).get(timeout=10)
             assert result.partition == partition
         p.close()
 
@@ -334,9 +346,11 @@ class TestConsumer:
 
     def test_N07_consume_large_message(self):
         """N07: Consume 1MB message."""
-        from kafka import KafkaProducer, KafkaConsumer
+        from kafka import KafkaConsumer, KafkaProducer
         topic = "conformance-large"
-        p = KafkaProducer(bootstrap_servers=get_bootstrap(), max_request_size=2*1024*1024)
+        p = KafkaProducer(
+            bootstrap_servers=get_bootstrap(), max_request_size=2 * 1024 * 1024
+        )
         big = b"L" * (1024 * 1024)
         p.send(topic, value=big).get(timeout=30)
         p.close()
@@ -519,13 +533,12 @@ class TestErrors:
                           bootstrap_servers=get_bootstrap(),
                           auto_offset_reset='earliest',
                           consumer_timeout_ms=3000)
-        msgs = list(c)
+        assert list(c) == []
         c.close()
 
     def test_E02_error_invalid_partition(self):
         """E02: Produce to invalid partition."""
         from kafka import KafkaProducer
-        from kafka.errors import KafkaError
         p = KafkaProducer(bootstrap_servers=get_bootstrap())
         try:
             result = p.send('conformance-producer', partition=999, value=b"test")
@@ -554,6 +567,6 @@ class TestErrors:
 
     def test_E05_error_has_message(self):
         """E05: Errors have descriptive messages."""
-        from kafka.errors import KafkaError, TopicAlreadyExistsError
+        from kafka.errors import TopicAlreadyExistsError
         err = TopicAlreadyExistsError()
         assert str(err) != ""

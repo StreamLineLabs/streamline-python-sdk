@@ -1,8 +1,10 @@
 """Tests for the circuit breaker module."""
 
+from __future__ import annotations
+
 import asyncio
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -178,8 +180,8 @@ class TestProducerCircuitBreakerIntegration:
 
     @pytest.fixture
     def producer_with_cb(self, circuit_breaker):
-        from streamline_sdk.producer import Producer
         from streamline_sdk.client import ClientConfig, ProducerConfig
+        from streamline_sdk.producer import Producer
 
         return Producer(
             ClientConfig(), ProducerConfig(), circuit_breaker=circuit_breaker
@@ -187,8 +189,8 @@ class TestProducerCircuitBreakerIntegration:
 
     @pytest.fixture
     def producer_without_cb(self):
-        from streamline_sdk.producer import Producer
         from streamline_sdk.client import ClientConfig, ProducerConfig
+        from streamline_sdk.producer import Producer
 
         return Producer(ClientConfig(), ProducerConfig())
 
@@ -283,8 +285,8 @@ class TestConsumerCircuitBreakerIntegration:
 
     @pytest.fixture
     def consumer_with_cb(self, circuit_breaker):
-        from streamline_sdk.consumer import Consumer
         from streamline_sdk.client import ClientConfig, ConsumerConfig
+        from streamline_sdk.consumer import Consumer
 
         return Consumer(
             ClientConfig(), ConsumerConfig(), circuit_breaker=circuit_breaker

@@ -3,15 +3,15 @@
 import pytest
 
 from streamline_sdk.exceptions import (
-    StreamlineError,
-    ConnectionError,
-    ProducerError,
-    ConsumerError,
-    TopicError,
     AuthenticationError,
     AuthorizationError,
+    ConnectionError,
+    ConsumerError,
+    ProducerError,
     SerializationError,
+    StreamlineError,
     TimeoutError,
+    TopicError,
 )
 
 
@@ -120,7 +120,10 @@ class TestTopicError:
 
     def test_default_hint(self):
         err = TopicError("topic not found")
-        assert err.hint == "Use admin client to create the topic first, or enable auto-creation"
+        assert (
+            err.hint
+            == "Use admin client to create the topic first, or enable auto-creation"
+        )
         assert "(hint:" in str(err)
 
     def test_isinstance_check(self):
@@ -204,7 +207,9 @@ class TestTimeoutError:
 
     def test_default_hint(self):
         err = TimeoutError("request timed out after 30s")
-        assert err.hint == "Consider increasing timeout settings or checking server load"
+        assert (
+            err.hint == "Consider increasing timeout settings or checking server load"
+        )
         assert "(hint:" in str(err)
 
     def test_isinstance_check(self):
@@ -235,7 +240,9 @@ class TestExceptionHierarchy:
             TimeoutError,
         ]
         for cls in subclasses:
-            assert issubclass(cls, StreamlineError), f"{cls.__name__} is not a StreamlineError"
+            assert issubclass(cls, StreamlineError), (
+                f"{cls.__name__} is not a StreamlineError"
+            )
 
     def test_all_are_exceptions(self):
         """All exception types should be subclasses of Exception."""
@@ -267,22 +274,27 @@ class TestExceptionHierarchy:
         ]
         for i, cls_a in enumerate(siblings):
             for cls_b in siblings[i + 1:]:
-                assert not issubclass(cls_a, cls_b), f"{cls_a.__name__} should not be subclass of {cls_b.__name__}"
-                assert not issubclass(cls_b, cls_a), f"{cls_b.__name__} should not be subclass of {cls_a.__name__}"
+                assert not issubclass(cls_a, cls_b), (
+                    f"{cls_a.__name__} should not be subclass of {cls_b.__name__}"
+                )
+                assert not issubclass(cls_b, cls_a), (
+                    f"{cls_b.__name__} should not be subclass of {cls_a.__name__}"
+                )
 
     def test_catch_all_with_base(self):
         """A single except StreamlineError should catch any SDK exception."""
-        for ExcClass in [ConnectionError, ProducerError, ConsumerError, TopicError,
-                         AuthenticationError, AuthorizationError, SerializationError, TimeoutError]:
+        for exc_class in [ConnectionError, ProducerError, ConsumerError, TopicError,
+                          AuthenticationError, AuthorizationError,
+                          SerializationError, TimeoutError]:
             with pytest.raises(StreamlineError):
-                raise ExcClass(f"test {ExcClass.__name__}")
+                raise exc_class(f"test {exc_class.__name__}")
 
     def test_string_representation(self):
         """All exceptions should include the message in str()."""
-        for ExcClass in [StreamlineError, ConnectionError, ProducerError, ConsumerError,
-                         TopicError, AuthenticationError, AuthorizationError,
-                         SerializationError, TimeoutError]:
-            msg = f"error from {ExcClass.__name__}"
-            err = ExcClass(msg)
+        for exc_class in [StreamlineError, ConnectionError, ProducerError,
+                          ConsumerError, TopicError, AuthenticationError,
+                          AuthorizationError, SerializationError, TimeoutError]:
+            msg = f"error from {exc_class.__name__}"
+            err = exc_class(msg)
             assert msg in str(err)
             assert msg in repr(err)

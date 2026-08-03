@@ -4,11 +4,11 @@ import pytest
 
 from streamline_sdk.admin import (
     Admin,
-    TopicConfig,
-    TopicInfo,
-    PartitionInfo,
     ConsumerGroupInfo,
     GroupMember,
+    PartitionInfo,
+    TopicConfig,
+    TopicInfo,
 )
 from streamline_sdk.client import ClientConfig
 from streamline_sdk.exceptions import TopicError
@@ -76,7 +76,12 @@ class TestTopicInfo:
 
     def test_topic_info_internal_topic(self):
         """Test representing an internal topic."""
-        info = TopicInfo(name="__consumer_offsets", partitions=50, replication_factor=3, internal=True)
+        info = TopicInfo(
+            name="__consumer_offsets",
+            partitions=50,
+            replication_factor=3,
+            internal=True,
+        )
         assert info.internal is True
         assert info.name == "__consumer_offsets"
 

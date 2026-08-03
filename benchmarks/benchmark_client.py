@@ -1,6 +1,7 @@
 """Benchmarks for Streamline Python SDK."""
 
-import pytest
+
+from datetime import datetime
 
 from streamline_sdk import StreamlineClient
 from streamline_sdk.client import ClientConfig, ConsumerConfig, ProducerConfig
@@ -30,9 +31,6 @@ from streamline_sdk.types import (
     TopicConfig,
     TopicInfo,
 )
-
-from datetime import datetime
-
 
 # ---------------------------------------------------------------------------
 # Group: client_construction
@@ -223,7 +221,12 @@ class TestTypeConstruction:
         """Benchmark Message.datetime computed property."""
         benchmark.group = "types"
         msg = Message(
-            topic="t", partition=0, offset=0, timestamp=1700000000000, key=None, value="v"
+            topic="t",
+            partition=0,
+            offset=0,
+            timestamp=1700000000000,
+            key=None,
+            value="v",
         )
         benchmark(lambda: msg.datetime)
 
@@ -276,7 +279,9 @@ class TestTypeConstruction:
         """Benchmark types.TopicInfo creation with multiple partitions."""
         benchmark.group = "types"
         parts = [
-            PartitionInfo(id=i, leader=0, replicas=[0, 1], isr=[0, 1], high_watermark=1000)
+            PartitionInfo(
+                id=i, leader=0, replicas=[0, 1], isr=[0, 1], high_watermark=1000
+            )
             for i in range(6)
         ]
         cfg = TopicConfig(partitions=6, replication_factor=2)
@@ -295,7 +300,9 @@ class TestTypeConstruction:
     def test_offset_info_lag(self, benchmark):
         """Benchmark OffsetInfo.lag property."""
         benchmark.group = "types"
-        info = OffsetInfo(topic="t", partition=0, current_offset=500, log_end_offset=1000)
+        info = OffsetInfo(
+            topic="t", partition=0, current_offset=500, log_end_offset=1000
+        )
         benchmark(lambda: info.lag)
 
     def test_produce_result_creation(self, benchmark):
@@ -325,7 +332,9 @@ class TestTypeConstruction:
         """Benchmark iterating over QueryResult rows."""
         benchmark.group = "types"
         rows = [{"id": i, "val": i * 10} for i in range(50)]
-        result = QueryResult(columns=["id", "val"], rows=rows, row_count=50, execution_time_ms=1)
+        result = QueryResult(
+            columns=["id", "val"], rows=rows, row_count=50, execution_time_ms=1
+        )
         benchmark(lambda: list(result))
 
     def test_consumer_group_info_creation(self, benchmark):

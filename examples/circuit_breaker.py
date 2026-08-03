@@ -37,7 +37,9 @@ async def main():
     breaker = CircuitBreaker(config=cb_config)
 
     async with StreamlineClient(
-        bootstrap_servers=os.environ.get("STREAMLINE_BOOTSTRAP_SERVERS", "localhost:9092"),
+        bootstrap_servers=os.environ.get(
+            "STREAMLINE_BOOTSTRAP_SERVERS", "localhost:9092"
+        ),
     ) as client:
         print(f"Connected. Circuit state: {breaker.state.value}")
 
@@ -45,7 +47,9 @@ async def main():
         from streamline_sdk.admin import TopicConfig
 
         try:
-            await client.admin.create_topic(TopicConfig(name="cb-example", num_partitions=1))
+            await client.admin.create_topic(
+                TopicConfig(name="cb-example", num_partitions=1)
+            )
         except Exception:
             pass  # topic may already exist
 

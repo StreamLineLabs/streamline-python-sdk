@@ -3,17 +3,22 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, AsyncIterator, Dict, List, Optional, Set, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from aiokafka import AIOKafkaConsumer, TopicPartition
 from aiokafka.errors import KafkaError
 
 from .circuit_breaker import CircuitBreakerOpen
 from .exceptions import (
-    ConsumerError,
     ConnectionError as _ConnectionError,
+)
+from .exceptions import (
+    ConsumerError,
+)
+from .exceptions import (
     TimeoutError as _TimeoutError,
 )
 from .validation import validate_topic_name
@@ -41,10 +46,10 @@ class ConsumerRecord:
     topic: str
     partition: int
     offset: int
-    key: Optional[bytes]
-    value: Optional[bytes]
+    key: bytes | None
+    value: bytes | None
     timestamp: datetime
-    headers: Dict[str, bytes]
+    headers: dict[str, bytes]
 
 
 class Consumer:
@@ -62,8 +67,8 @@ class Consumer:
         client_config: Any,
         consumer_config: Any,
         *,
-        circuit_breaker: Optional[CircuitBreaker] = None,
-        telemetry: Optional[Any] = None,
+        circuit_breaker: CircuitBreaker | None = None,
+        telemetry: Any | None = None,
     ):
         """Initialize the consumer.
 
@@ -77,8 +82,8 @@ class Consumer:
         self._consumer_config = consumer_config
         self._circuit_breaker = circuit_breaker
         self._telemetry = telemetry
-        self._consumer: Optional[AIOKafkaConsumer] = None
-        self._subscribed_topics: Set[str] = set()
+        self._consumer: AIOKafkaConsumer | None = None
+        self._subscribed_topics: set[str] = set()
         self._started = False
 
     async def start(self) -> None:
@@ -123,7 +128,7 @@ class Consumer:
         self._started = False
         self._subscribed_topics.clear()
 
-    async def subscribe(self, topics: List[str]) -> None:
+    async def subscribe(self, topics: list[str]) -> None:
         """Subscribe to topics.
 
         Args:
@@ -144,7 +149,7 @@ class Consumer:
             self._consumer.unsubscribe()
             self._subscribed_topics.clear()
 
-    def assign(self, partitions: List[TopicPartition]) -> None:
+    def assign(self, partitions: list[TopicPartition]) -> None:
         """Manually assign partitions.
 
         Args:
@@ -168,7 +173,7 @@ class Consumer:
         self._consumer.seek(partition, offset)
 
     async def seek_to_beginning(
-        self, partitions: Optional[List[TopicPartition]] = None
+        self, partitions: list[TopicPartition] | None = None
     ) -> None:
         """Seek to the beginning of partitions.
 
@@ -184,7 +189,7 @@ class Consumer:
         await self._consumer.seek_to_beginning(*partitions)
 
     async def seek_to_end(
-        self, partitions: Optional[List[TopicPartition]] = None
+        self, partitions: list[TopicPartition] | None = None
     ) -> None:
         """Seek to the end of partitions.
 
@@ -199,7 +204,7 @@ class Consumer:
 
         await self._consumer.seek_to_end(*partitions)
 
-    async def commit(self, offsets: Optional[Dict[TopicPartition, int]] = None) -> None:
+    async def commit(self, offsets: dict[TopicPartition, int] | None = None) -> None:
         """Commit offsets.
 
         Args:
@@ -225,9 +230,10 @@ class Consumer:
         if self._consumer is None:
             raise ConsumerError("Consumer not started")
 
-        return await self._consumer.position(partition)
+        position: int = await self._consumer.position(partition)
+        return position
 
-    async def committed(self, partition: TopicPartition) -> Optional[int]:
+    async def committed(self, partition: TopicPartition) -> int | None:
         """Get committed offset for a partition.
 
         Args:
@@ -239,9 +245,10 @@ class Consumer:
         if self._consumer is None:
             raise ConsumerError("Consumer not started")
 
-        return await self._consumer.committed(partition)
+        committed: int | None = await self._consumer.committed(partition)
+        return committed
 
-    def assignment(self) -> Set[TopicPartition]:
+    def assignment(self) -> set[TopicPartition]:
         """Get assigned partitions.
 
         Returns:
@@ -250,9 +257,10 @@ class Consumer:
         if self._consumer is None:
             return set()
 
-        return self._consumer.assignment()
+        assignment: set[TopicPartition] = self._consumer.assignment()
+        return assignment
 
-    def subscription(self) -> Set[str]:
+    def subscription(self) -> set[str]:
         """Get subscribed topics.
 
         Returns:
@@ -261,8 +269,8 @@ class Consumer:
         return self._subscribed_topics.copy()
 
     async def poll(
-        self, timeout_ms: int = 1000, max_records: Optional[int] = None
-    ) -> List[ConsumerRecord]:
+        self, timeout_ms: int = 1000, max_records: int | None = None
+    ) -> list[ConsumerRecord]:
         """Poll for messages.
 
         Args:
@@ -276,13 +284,14 @@ class Consumer:
             raise ConsumerError("Consumer not started")
 
         records = []
+        consumer = self._consumer
         topic_label = ",".join(sorted(self._subscribed_topics)) or "unknown"
         try:
             if self._circuit_breaker is not None and not self._circuit_breaker.allow():
                 raise CircuitBreakerOpen()
 
             async def _do_poll() -> None:
-                data = await self._consumer.getmany(
+                data = await consumer.getmany(
                     timeout_ms=timeout_ms, max_records=max_records
                 )
 
@@ -316,7 +325,9 @@ class Consumer:
         except CircuitBreakerOpen:
             raise
         except KafkaError as e:
-            if self._circuit_breaker is not None and isinstance(e.__cause__, _RETRYABLE_EXCEPTIONS):
+            if self._circuit_breaker is not None and isinstance(
+                e.__cause__, _RETRYABLE_EXCEPTIONS
+            ):
                 self._circuit_breaker.record_failure()
             raise ConsumerError(f"Failed to poll: {e}") from e
         except _RETRYABLE_EXCEPTIONS:
@@ -357,16 +368,17 @@ class Consumer:
         return self._started
 
     @property
-    def group_id(self) -> Optional[str]:
+    def group_id(self) -> str | None:
         """Get the consumer group ID."""
-        return self._consumer_config.group_id
+        group_id: str | None = self._consumer_config.group_id
+        return group_id
 
     async def search(
         self,
         topic: str,
         query: str,
         k: int = 10,
-    ) -> List["SearchHit"]:
+    ) -> list[SearchHit]:
         """Search a topic using semantic search via the HTTP API.
 
         Args:
@@ -439,7 +451,7 @@ class Consumer:
             for h in data.get("hits", [])
         ]
 
-    async def __aenter__(self) -> "Consumer":
+    async def __aenter__(self) -> Consumer:
         """Enter async context manager."""
         await self.start()
         return self
@@ -476,7 +488,7 @@ class SearchHit:
     partition: int
     offset: int
     score: float
-    value: Optional[bytes] = None
+    value: bytes | None = None
 
 
 async def search(
@@ -487,7 +499,7 @@ async def search(
     include_value: bool = False,
     admin_port: int = 9094,
     timeout: float = 5.0,
-) -> List[SearchHit]:
+) -> list[SearchHit]:
     """Run a semantic search against a topic configured with ``semantic.embed=true``.
 
     Args:
@@ -540,7 +552,9 @@ async def search(
             partition=int(h["partition"]),
             offset=int(h["offset"]),
             score=float(h["score"]),
-            value=h.get("value", "").encode() if include_value and h.get("value") else None,
+            value=h.get("value", "").encode()
+            if include_value and h.get("value")
+            else None,
         )
         for h in data.get("hits", [])
     ]

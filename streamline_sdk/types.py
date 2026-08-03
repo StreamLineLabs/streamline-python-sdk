@@ -2,9 +2,11 @@
 Type definitions for Streamline Python SDK.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
 from datetime import datetime
+from typing import Any, NamedTuple
 
 
 @dataclass
@@ -23,13 +25,13 @@ class Message:
     timestamp: int
     """Timestamp in milliseconds since epoch."""
 
-    key: Optional[str]
+    key: str | None
     """Message key (optional)."""
 
     value: Any
     """Message value (deserialized from JSON if possible)."""
 
-    headers: Dict[str, str] = field(default_factory=dict)
+    headers: dict[str, str] = field(default_factory=dict)
     """Message headers."""
 
     @property
@@ -51,16 +53,16 @@ class Record:
     value: Any
     """Message value (will be JSON serialized if dict/list)."""
 
-    key: Optional[str] = None
+    key: str | None = None
     """Message key (optional)."""
 
-    headers: Dict[str, str] = field(default_factory=dict)
+    headers: dict[str, str] = field(default_factory=dict)
     """Message headers."""
 
-    partition: Optional[int] = None
+    partition: int | None = None
     """Target partition (optional, uses key hash if not specified)."""
 
-    timestamp: Optional[int] = None
+    timestamp: int | None = None
     """Timestamp in milliseconds (optional, uses current time if not specified)."""
 
 
@@ -74,13 +76,13 @@ class TopicConfig:
     replication_factor: int = 1
     """Replication factor."""
 
-    retention_ms: Optional[int] = None
+    retention_ms: int | None = None
     """Retention time in milliseconds."""
 
-    retention_bytes: Optional[int] = None
+    retention_bytes: int | None = None
     """Retention size in bytes."""
 
-    segment_bytes: Optional[int] = None
+    segment_bytes: int | None = None
     """Segment size in bytes."""
 
     cleanup_policy: str = "delete"
@@ -100,10 +102,10 @@ class PartitionInfo:
     leader: int
     """Leader broker ID."""
 
-    replicas: List[int]
+    replicas: list[int]
     """Replica broker IDs."""
 
-    isr: List[int]
+    isr: list[int]
     """In-sync replica broker IDs."""
 
     high_watermark: int
@@ -120,7 +122,7 @@ class TopicInfo:
     name: str
     """Topic name."""
 
-    partitions: List[PartitionInfo]
+    partitions: list[PartitionInfo]
     """Partition information."""
 
     config: TopicConfig
@@ -148,7 +150,7 @@ class ConsumerGroupInfo:
     protocol: str
     """Protocol name (assignment strategy)."""
 
-    members: List["GroupMemberInfo"]
+    members: list[GroupMemberInfo]
     """Group members."""
 
 
@@ -165,7 +167,7 @@ class GroupMemberInfo:
     client_host: str
     """Client host."""
 
-    assignments: List[Dict[str, Any]]
+    assignments: list[dict[str, Any]]
     """Partition assignments."""
 
 
@@ -212,10 +214,10 @@ class ProduceResult:
 class QueryResult:
     """Result of a SQL query."""
 
-    columns: List[str]
+    columns: list[str]
     """Column names."""
 
-    rows: List[Dict[str, Any]]
+    rows: list[dict[str, Any]]
     """Result rows."""
 
     row_count: int
@@ -229,9 +231,6 @@ class QueryResult:
 
     def __len__(self):
         return self.row_count
-
-
-from typing import NamedTuple
 
 
 class TopicPartition(NamedTuple):

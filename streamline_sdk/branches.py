@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Optional
 
 _BRANCH_NAME_RE = re.compile(r"^[a-z0-9-]+$")
 
@@ -24,7 +23,7 @@ class BranchedTopic:
     """A topic name + branch view."""
 
     topic: str
-    branch: Optional[str] = None
+    branch: str | None = None
 
     def __post_init__(self) -> None:
         if self.branch is not None and not _BRANCH_NAME_RE.match(self.branch):

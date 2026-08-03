@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from aiokafka.admin import AIOKafkaAdminClient, NewTopic
 from aiokafka.errors import KafkaError
@@ -34,7 +34,7 @@ class TopicConfig:
     name: str
     num_partitions: int = 1
     replication_factor: int = 1
-    config: Dict[str, str] = field(default_factory=dict)
+    config: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -67,8 +67,8 @@ class PartitionInfo:
 
     id: int
     leader: int
-    replicas: List[int]
-    isr: List[int]
+    replicas: list[int]
+    isr: list[int]
 
 
 @dataclass
@@ -85,7 +85,7 @@ class ConsumerGroupInfo:
     group_id: str
     state: str
     protocol: str
-    members: List["GroupMember"]
+    members: list[GroupMember]
 
 
 @dataclass
@@ -116,7 +116,7 @@ class ClusterInfo:
 
     cluster_id: str = ""
     broker_id: int = 0
-    brokers: List["BrokerInfo"] = field(default_factory=list)
+    brokers: list[BrokerInfo] = field(default_factory=list)
     controller: int = -1
 
 
@@ -134,7 +134,7 @@ class BrokerInfo:
     id: int = 0
     host: str = ""
     port: int = 9092
-    rack: Optional[str] = None
+    rack: str | None = None
 
 
 @dataclass
@@ -167,7 +167,7 @@ class ConsumerGroupLag:
     """
 
     group_id: str = ""
-    partitions: List[ConsumerLag] = field(default_factory=list)
+    partitions: list[ConsumerLag] = field(default_factory=list)
     total_lag: int = 0
 
 
@@ -185,11 +185,11 @@ class InspectedMessage:
     """
 
     offset: int = 0
-    key: Optional[str] = None
+    key: str | None = None
     value: str = ""
     timestamp: int = 0
     partition: int = 0
-    headers: Dict[str, str] = field(default_factory=dict)
+    headers: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -205,7 +205,7 @@ class MetricPoint:
 
     name: str = ""
     value: float = 0.0
-    labels: Dict[str, str] = field(default_factory=dict)
+    labels: dict[str, str] = field(default_factory=dict)
     timestamp: int = 0
 
 
@@ -241,7 +241,7 @@ class Admin:
             client_config: Client configuration.
         """
         self._client_config = client_config
-        self._admin: Optional[AIOKafkaAdminClient] = None
+        self._admin: AIOKafkaAdminClient | None = None
         self._started = False
 
     async def start(self) -> None:
@@ -303,7 +303,7 @@ class Admin:
         except KafkaError as e:
             raise TopicError(f"Failed to create topic '{config.name}': {e}") from e
 
-    async def create_topics(self, configs: List[TopicConfig]) -> None:
+    async def create_topics(self, configs: list[TopicConfig]) -> None:
         """Create multiple topics.
 
         Args:
@@ -346,7 +346,7 @@ class Admin:
         except KafkaError as e:
             raise TopicError(f"Failed to delete topic '{name}': {e}") from e
 
-    async def delete_topics(self, names: List[str]) -> None:
+    async def delete_topics(self, names: list[str]) -> None:
         """Delete multiple topics.
 
         Args:
@@ -363,7 +363,7 @@ class Admin:
         except KafkaError as e:
             raise TopicError(f"Failed to delete topics: {e}") from e
 
-    async def list_topics(self) -> List[str]:
+    async def list_topics(self) -> list[str]:
         """List all topics via the HTTP REST API.
 
         Returns:
@@ -412,7 +412,9 @@ class Admin:
 
         if HAS_AIOHTTP:
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                async with session.get(
+                    url, timeout=aiohttp.ClientTimeout(total=10)
+                ) as resp:
                     if resp.status == 404:
                         raise TopicError(f"Not found: {path}")
                     if resp.status != 200:
@@ -434,7 +436,9 @@ class Admin:
 
         if HAS_AIOHTTP:
             async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=body, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                async with session.post(
+                    url, json=body, timeout=aiohttp.ClientTimeout(total=10)
+                ) as resp:
                     if resp.status == 404:
                         raise TopicError(f"Not found: {path}")
                     if resp.status not in (200, 201):
@@ -458,7 +462,9 @@ class Admin:
 
         if HAS_AIOHTTP:
             async with aiohttp.ClientSession() as session:
-                async with session.delete(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                async with session.delete(
+                    url, timeout=aiohttp.ClientTimeout(total=10)
+                ) as resp:
                     if resp.status == 404:
                         raise TopicError(f"Not found: {path}")
                     if resp.status >= 300:
@@ -468,11 +474,11 @@ class Admin:
             import urllib.request
             req = urllib.request.Request(url, method="DELETE")
             def _sync_delete():
-                with urllib.request.urlopen(req, timeout=10) as resp:
+                with urllib.request.urlopen(req, timeout=10):
                     pass
             await asyncio.to_thread(_sync_delete)
 
-    async def list_consumer_groups(self) -> List[str]:
+    async def list_consumer_groups(self) -> list[str]:
         """List all consumer groups.
 
         Returns:
@@ -610,9 +616,9 @@ class Admin:
         self,
         topic: str,
         partition: int = 0,
-        offset: Optional[int] = None,
+        offset: int | None = None,
         limit: int = 20,
-    ) -> List[InspectedMessage]:
+    ) -> list[InspectedMessage]:
         """Browse messages from a topic partition.
 
         Args:
@@ -642,7 +648,7 @@ class Admin:
 
     async def latest_messages(
         self, topic: str, count: int = 10
-    ) -> List[InspectedMessage]:
+    ) -> list[InspectedMessage]:
         """Get the latest messages from a topic.
 
         Args:
@@ -665,7 +671,7 @@ class Admin:
             for m in data
         ]
 
-    async def metrics_history(self) -> List[MetricPoint]:
+    async def metrics_history(self) -> list[MetricPoint]:
         """Get metrics history from the server.
 
         Returns:
@@ -683,8 +689,8 @@ class Admin:
         ]
 
     async def create_branch(
-        self, name: str, base_topic: str, base_offsets: Optional[Dict[int, int]] = None
-    ) -> "BranchInfo":
+        self, name: str, base_topic: str, base_offsets: dict[int, int] | None = None
+    ) -> BranchInfo:
         """Create a copy-on-write branch of a topic (M5).
 
         Args:
@@ -695,7 +701,7 @@ class Admin:
         Returns:
             BranchInfo for the newly created branch.
         """
-        body: Dict[str, Any] = {"name": name, "base_topic": base_topic}
+        body: dict[str, Any] = {"name": name, "base_topic": base_topic}
         if base_offsets:
             body["base_offsets"] = base_offsets
         data = await self._http_post("/v1/branches", body)
@@ -706,7 +712,7 @@ class Admin:
             created_at=int(data.get("created_at", 0)),
         )
 
-    async def list_branches(self, topic: Optional[str] = None) -> List["BranchInfo"]:
+    async def list_branches(self, topic: str | None = None) -> list[BranchInfo]:
         """List copy-on-write topic branches (M5).
 
         Args:
@@ -738,7 +744,7 @@ class Admin:
         """
         await self._http_delete(f"/v1/branches/{branch_id}")
 
-    async def __aenter__(self) -> "Admin":
+    async def __aenter__(self) -> Admin:
         """Enter async context manager."""
         await self.start()
         return self

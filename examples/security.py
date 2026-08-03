@@ -22,7 +22,9 @@ async def sasl_plain_example():
     print("-" * 40)
 
     client = StreamlineClient(
-        bootstrap_servers=os.environ.get("STREAMLINE_BOOTSTRAP_SERVERS", "localhost:9092"),
+        bootstrap_servers=os.environ.get(
+            "STREAMLINE_BOOTSTRAP_SERVERS", "localhost:9092"
+        ),
         sasl_mechanism="PLAIN",
         sasl_plain_username=os.environ.get("SASL_USERNAME", "admin"),
         sasl_plain_password=os.environ.get("SASL_PASSWORD", "admin-secret"),
@@ -47,7 +49,9 @@ async def sasl_scram_example():
     print("-" * 40)
 
     client = StreamlineClient(
-        bootstrap_servers=os.environ.get("STREAMLINE_BOOTSTRAP_SERVERS", "localhost:9092"),
+        bootstrap_servers=os.environ.get(
+            "STREAMLINE_BOOTSTRAP_SERVERS", "localhost:9092"
+        ),
         sasl_mechanism="SCRAM-SHA-256",
         sasl_plain_username=os.environ.get("SASL_USERNAME", "admin"),
         sasl_plain_password=os.environ.get("SASL_PASSWORD", "admin-secret"),

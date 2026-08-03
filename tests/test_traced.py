@@ -1,11 +1,14 @@
 """Tests for TracedProducer and TracedConsumer wrappers."""
 
+from __future__ import annotations
+
+from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from streamline_sdk.producer import ProducerRecord, RecordMetadata
-from streamline_sdk.traced import TracedProducer, TracedConsumer
-
+from streamline_sdk.traced import TracedConsumer, TracedProducer
 
 # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -18,7 +21,7 @@ def _make_mock_producer() -> AsyncMock:
             topic="t",
             partition=0,
             offset=1,
-            timestamp=0,
+            timestamp=datetime.fromtimestamp(0),
             serialized_key_size=0,
             serialized_value_size=5,
         )
@@ -28,7 +31,7 @@ def _make_mock_producer() -> AsyncMock:
             topic="t",
             partition=0,
             offset=2,
-            timestamp=0,
+            timestamp=datetime.fromtimestamp(0),
             serialized_key_size=0,
             serialized_value_size=5,
         )

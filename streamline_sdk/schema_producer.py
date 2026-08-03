@@ -20,8 +20,9 @@ from __future__ import annotations
 
 import json
 import struct
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, Optional
+from typing import Any
 
 from .consumer import Consumer, ConsumerRecord
 from .exceptions import SerializationError
@@ -50,11 +51,11 @@ class DeserializedRecord:
     topic: str
     partition: int
     offset: int
-    key: Optional[bytes]
+    key: bytes | None
     value: Any
     schema_id: int
-    headers: Optional[dict[str, bytes]]
-    timestamp: Optional[int]
+    headers: dict[str, bytes] | None
+    timestamp: int | None
 
 
 class SchemaProducer:
@@ -79,7 +80,7 @@ class SchemaProducer:
         self._schema = schema
         self._schema_type = schema_type
         self._auto_register = auto_register
-        self._schema_id: Optional[int] = None
+        self._schema_id: int | None = None
 
     async def _ensure_registered(self) -> int:
         """Register the schema if needed and return the cached schema ID."""
@@ -100,8 +101,8 @@ class SchemaProducer:
         self,
         topic: str,
         value: Any,
-        key: Optional[bytes] = None,
-        headers: Optional[dict[str, bytes]] = None,
+        key: bytes | None = None,
+        headers: dict[str, bytes] | None = None,
     ) -> RecordMetadata:
         """Serialize value to wire format and send to a topic.
 
@@ -157,7 +158,8 @@ class SchemaConsumer:
         raw = record.value
         if raw is None or len(raw) < WIRE_FORMAT_HEADER_SIZE:
             raise SerializationError(
-                f"Message too short for wire format (got {len(raw) if raw else 0} bytes, "
+                f"Message too short for wire format "
+                f"(got {len(raw) if raw else 0} bytes, "
                 f"need at least {WIRE_FORMAT_HEADER_SIZE})"
             )
 
@@ -175,7 +177,7 @@ class SchemaConsumer:
                 f"Failed to deserialize JSON payload: {e}"
             ) from e
 
-        timestamp_ms: Optional[int] = None
+        timestamp_ms: int | None = None
         if record.timestamp is not None:
             timestamp_ms = int(record.timestamp.timestamp() * 1000)
 
@@ -193,7 +195,7 @@ class SchemaConsumer:
     async def poll(
         self,
         timeout_ms: int = 1000,
-        max_records: Optional[int] = None,
+        max_records: int | None = None,
     ) -> list[DeserializedRecord]:
         """Poll for messages and deserialize them.
 

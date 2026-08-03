@@ -1,10 +1,9 @@
 """Tests for retry utilities."""
 
-import asyncio
 import pytest
 
+from streamline_sdk.exceptions import ConnectionError, ProducerError
 from streamline_sdk.retry import RetryConfig, retry_async, with_retry
-from streamline_sdk.exceptions import ConnectionError, TimeoutError, ProducerError
 
 
 class TestRetryConfig:
@@ -183,7 +182,7 @@ class TestWithRetryDecorator:
 def test_max_retries_exceeded():
     """Test that retry stops after max attempts."""
     from streamline_sdk.retry import RetryPolicy
-    
+
     policy = RetryPolicy(max_retries=3)
     assert policy.max_retries == 3
     assert policy.should_retry(attempt=2) is True
@@ -194,7 +193,7 @@ def test_non_retryable_error():
     """Test that non-retryable errors are not retried."""
     from streamline_sdk.exceptions import AuthenticationError
     from streamline_sdk.retry import RetryPolicy
-    
+
     policy = RetryPolicy(max_retries=5)
     err = AuthenticationError("invalid credentials")
     assert policy.should_retry_error(err) is False

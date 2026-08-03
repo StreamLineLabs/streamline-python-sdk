@@ -1,10 +1,11 @@
 """Tests for Consumer and ConsumerRecord."""
 
-import pytest
 from datetime import datetime
 
-from streamline_sdk.consumer import Consumer, ConsumerRecord
+import pytest
+
 from streamline_sdk.client import ClientConfig, ConsumerConfig
+from streamline_sdk.consumer import Consumer, ConsumerRecord
 from streamline_sdk.exceptions import ConsumerError
 
 
@@ -63,14 +64,38 @@ class TestConsumerRecord:
     def test_record_equality(self):
         """Identical ConsumerRecords should be equal."""
         ts = datetime(2024, 1, 1)
-        kwargs = dict(topic="t", partition=0, offset=5, key=b"k", value=b"v", timestamp=ts, headers={})
+        kwargs = dict(
+            topic="t",
+            partition=0,
+            offset=5,
+            key=b"k",
+            value=b"v",
+            timestamp=ts,
+            headers={},
+        )
         assert ConsumerRecord(**kwargs) == ConsumerRecord(**kwargs)
 
     def test_record_inequality(self):
         """ConsumerRecords with different offsets should differ."""
         ts = datetime(2024, 1, 1)
-        r1 = ConsumerRecord(topic="t", partition=0, offset=1, key=None, value=b"v", timestamp=ts, headers={})
-        r2 = ConsumerRecord(topic="t", partition=0, offset=2, key=None, value=b"v", timestamp=ts, headers={})
+        r1 = ConsumerRecord(
+            topic="t",
+            partition=0,
+            offset=1,
+            key=None,
+            value=b"v",
+            timestamp=ts,
+            headers={},
+        )
+        r2 = ConsumerRecord(
+            topic="t",
+            partition=0,
+            offset=2,
+            key=None,
+            value=b"v",
+            timestamp=ts,
+            headers={},
+        )
         assert r1 != r2
 
     def test_record_large_offset(self):

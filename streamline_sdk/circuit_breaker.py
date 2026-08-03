@@ -14,9 +14,9 @@ import logging
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Optional, Type
+from typing import Callable
 
-from .exceptions import StreamlineError, ConnectionError, TimeoutError
+from .exceptions import ConnectionError, StreamlineError, TimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,8 @@ class CircuitBreakerConfig:
 
     Attributes:
         failure_threshold: Number of consecutive failures before opening the circuit.
-        success_threshold: Consecutive successes in half-open state to close the circuit.
+        success_threshold: Consecutive successes in half-open state to close
+            the circuit.
         open_timeout_s: Seconds to wait before transitioning from open to half-open.
         half_open_max_requests: Maximum probe requests allowed in half-open state.
         retryable_exceptions: Exception types that count as failures.
@@ -46,13 +47,20 @@ class CircuitBreakerConfig:
     success_threshold: int = 2
     open_timeout_s: float = 30.0
     half_open_max_requests: int = 3
-    retryable_exceptions: tuple[Type[Exception], ...] = field(
-        default_factory=lambda: (ConnectionError, TimeoutError, OSError, asyncio.TimeoutError)
+    retryable_exceptions: tuple[type[Exception], ...] = field(
+        default_factory=lambda: (
+            ConnectionError,
+            TimeoutError,
+            OSError,
+            asyncio.TimeoutError,
+        )
     )
-    on_state_change: Optional[Callable[[CircuitState, CircuitState], None]] = None
+    on_state_change: Callable[[CircuitState, CircuitState], None] | None = None
 
 
-class CircuitBreakerOpen(StreamlineError):
+# Public API name predates the ``*Error`` naming convention; renaming would be
+# a breaking change for consumers catching this exception.
+class CircuitBreakerOpen(StreamlineError):  # noqa: N818
     """Raised when the circuit breaker is open and rejecting requests."""
 
     def __init__(self) -> None:
@@ -83,7 +91,7 @@ class CircuitBreaker:
                 raise
     """
 
-    def __init__(self, config: Optional[CircuitBreakerConfig] = None) -> None:
+    def __init__(self, config: CircuitBreakerConfig | None = None) -> None:
         self._config = config or CircuitBreakerConfig()
         self._state = CircuitState.CLOSED
         self._failure_count = 0
@@ -95,7 +103,10 @@ class CircuitBreaker:
 
     @property
     def state(self) -> CircuitState:
-        """Current circuit breaker state (may auto-transition from OPEN to HALF_OPEN)."""
+        """Current circuit breaker state.
+
+        May auto-transition from OPEN to HALF_OPEN.
+        """
         if (
             self._state == CircuitState.OPEN
             and time.monotonic() - self._last_failure_at >= self._config.open_timeout_s

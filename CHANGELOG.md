@@ -8,6 +8,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Python 3.9 support: every runtime module now carries
+  `from __future__ import annotations`, so PEP 604 (`str | None`) and PEP 585
+  (`list[str]`) annotations are no longer evaluated at import time. Previously
+  `import streamline_sdk` raised `TypeError` on Python 3.9.
+- `cryptography>=42.0.0` is now a declared runtime dependency. The package
+  `__init__` re-exports `StreamlineVerifier`/`AttestationVerificationResult`
+  from `streamline_sdk.verifier`, which imports `cryptography` at module scope,
+  so a plain `pip install streamline-sdk` previously produced an unimportable
+  package.
+- `pytest tests/` is self-contained again: server-dependent tests are gated on
+  `STREAMLINE_INTEGRATION=1` (marker `integration`) and `CONFORMANCE=1`
+  (marker `conformance`) instead of failing/hanging against `localhost`.
+  `make integration-test` and the `integration` workflow remain the runnable
+  integration entry points.
+- `ruff check .` and `mypy` pass again: modernised annotations, fixed unused
+  imports/variables, and replaced `Any` leaks with explicit types and guards.
+- `Producer.send_record()` now returns a `datetime` timestamp for buffered
+  transactional records, matching `RecordMetadata.timestamp`.
+- `examples/agent_memory/memory_demo.py` uses the real `MemoryClient` API
+  instead of non-existent `StreamlineClient.memory_*` helpers.
+
+### Added
+- `search` extra (`pip install streamline-sdk[search]`) providing `aiohttp`,
+  matching the hint already raised by `Consumer.search()`.
+- `BrokerInfo`, `ClusterInfo`, `ConsumerLag`, `ConsumerGroupLag`,
+  `InspectedMessage` and `MetricPoint` are now listed in `streamline_sdk.__all__`
+  (they were already importable from the package).
+- Regression tests for the packaging/import contract and for the test-suite
+  gating (`tests/test_packaging_contract.py`, `tests/test_suite_gating.py`).
+
+### Changed
+- `mypy` is pinned to `<2.0` in the `dev` extra: mypy 2.x rejects
+  `python_version = "3.9"`, which this package still targets.
+
 
 ## [0.3.0] - 2026-04-20
 

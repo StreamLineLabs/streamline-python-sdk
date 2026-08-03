@@ -14,7 +14,8 @@ Usage::
 
 from __future__ import annotations
 
-from typing import Any, AsyncIterator, Dict, List, Optional, Set
+from collections.abc import AsyncIterator
+from typing import Any
 
 from aiokafka import TopicPartition
 
@@ -52,11 +53,11 @@ class TracedProducer:
     async def send(
         self,
         topic: str,
-        value: Optional[bytes] = None,
-        key: Optional[bytes] = None,
-        partition: Optional[int] = None,
-        timestamp_ms: Optional[int] = None,
-        headers: Optional[Dict[str, bytes]] = None,
+        value: bytes | None = None,
+        key: bytes | None = None,
+        partition: int | None = None,
+        timestamp_ms: int | None = None,
+        headers: dict[str, bytes] | None = None,
     ) -> RecordMetadata:
         """Send a message, wrapped in a PRODUCER span."""
         async with self._tracing.trace_produce(topic, headers=headers):
@@ -75,8 +76,8 @@ class TracedProducer:
             return await self._producer.send_record(record)
 
     async def send_batch(
-        self, records: List[ProducerRecord]
-    ) -> List[RecordMetadata]:
+        self, records: list[ProducerRecord]
+    ) -> list[RecordMetadata]:
         """Send multiple records, wrapped in a single PRODUCER span."""
         topic = records[0].topic if records else "unknown"
         async with self._tracing.trace_produce(topic):
@@ -90,7 +91,7 @@ class TracedProducer:
     async def begin_transaction(self) -> None:
         await self._producer.begin_transaction()
 
-    async def commit_transaction(self) -> List[RecordMetadata]:
+    async def commit_transaction(self) -> list[RecordMetadata]:
         return await self._producer.commit_transaction()
 
     async def abort_transaction(self) -> None:
@@ -106,7 +107,7 @@ class TracedProducer:
 
     # ── Context manager ───────────────────────────────────────────────
 
-    async def __aenter__(self) -> "TracedProducer":
+    async def __aenter__(self) -> TracedProducer:
         await self.start()
         return self
 
@@ -140,20 +141,20 @@ class TracedConsumer:
 
     # ── Subscription ──────────────────────────────────────────────────
 
-    async def subscribe(self, topics: List[str]) -> None:
+    async def subscribe(self, topics: list[str]) -> None:
         await self._consumer.subscribe(topics)
 
     async def unsubscribe(self) -> None:
         await self._consumer.unsubscribe()
 
-    def subscription(self) -> Set[str]:
+    def subscription(self) -> set[str]:
         return self._consumer.subscription()
 
     # ── Poll with tracing ─────────────────────────────────────────────
 
     async def poll(
-        self, timeout_ms: int = 1000, max_records: Optional[int] = None
-    ) -> List[ConsumerRecord]:
+        self, timeout_ms: int = 1000, max_records: int | None = None
+    ) -> list[ConsumerRecord]:
         """Poll for messages, wrapped in a CONSUMER span."""
         topic_label = ",".join(sorted(self._consumer.subscription())) or "unknown"
         async with self._tracing.trace_consume(topic_label):
@@ -163,32 +164,32 @@ class TracedConsumer:
 
     # ── Pass-through ──────────────────────────────────────────────────
 
-    async def commit(self, offsets: Optional[Dict[TopicPartition, int]] = None) -> None:
+    async def commit(self, offsets: dict[TopicPartition, int] | None = None) -> None:
         await self._consumer.commit(offsets)
 
     async def seek(self, partition: TopicPartition, offset: int) -> None:
         await self._consumer.seek(partition, offset)
 
     async def seek_to_beginning(
-        self, partitions: Optional[List[TopicPartition]] = None
+        self, partitions: list[TopicPartition] | None = None
     ) -> None:
         await self._consumer.seek_to_beginning(partitions)
 
     async def seek_to_end(
-        self, partitions: Optional[List[TopicPartition]] = None
+        self, partitions: list[TopicPartition] | None = None
     ) -> None:
         await self._consumer.seek_to_end(partitions)
 
     async def position(self, partition: TopicPartition) -> int:
         return await self._consumer.position(partition)
 
-    async def committed(self, partition: TopicPartition) -> Optional[int]:
+    async def committed(self, partition: TopicPartition) -> int | None:
         return await self._consumer.committed(partition)
 
-    def assign(self, partitions: List[TopicPartition]) -> None:
+    def assign(self, partitions: list[TopicPartition]) -> None:
         self._consumer.assign(partitions)
 
-    def assignment(self) -> Set[TopicPartition]:
+    def assignment(self) -> set[TopicPartition]:
         return self._consumer.assignment()
 
     @property
@@ -196,7 +197,7 @@ class TracedConsumer:
         return self._consumer.is_started
 
     @property
-    def group_id(self) -> Optional[str]:
+    def group_id(self) -> str | None:
         return self._consumer.group_id
 
     # ── Async iteration ───────────────────────────────────────────────
@@ -207,7 +208,7 @@ class TracedConsumer:
 
     # ── Context manager ───────────────────────────────────────────────
 
-    async def __aenter__(self) -> "TracedConsumer":
+    async def __aenter__(self) -> TracedConsumer:
         await self.start()
         return self
 

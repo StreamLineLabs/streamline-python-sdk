@@ -17,74 +17,60 @@ Example usage:
     asyncio.run(main())
 """
 
-from .client import StreamlineClient
-from .producer import Producer, ProducerRecord, RecordMetadata
-from .consumer import Consumer, ConsumerRecord, SearchHit
-from .admin import Admin, TopicConfig, TopicInfo, PartitionInfo
+from __future__ import annotations
+
 from .admin import (
-    ClusterInfo,
+    Admin,
+    BranchInfo,
     BrokerInfo,
-    ConsumerLag,
+    ClusterInfo,
     ConsumerGroupLag,
+    ConsumerLag,
     InspectedMessage,
     MetricPoint,
-    BranchInfo,
+    PartitionInfo,
+    TopicConfig,
+    TopicInfo,
 )
-from .exceptions import (
-    StreamlineError,
-    ConnectionError,
-    ProducerError,
-    ConsumerError,
-    TopicError,
-    ConfigurationError,
-)
-from .retry import RetryConfig, retry_async, with_retry
-from .circuit_breaker import (
-    CircuitBreaker,
-    CircuitBreakerConfig,
-    CircuitBreakerOpen,
-    CircuitState,
-)
-from .telemetry import StreamlineTracing
-from .metrics import ClientMetrics, MetricsSnapshot
-from .query import QueryClient, QueryResult
 from .ai import AIClient
-from .serializers import (
-    SchemaRegistryClient,
-    SchemaRegistryConfig,
-    AvroSerializer,
-    JsonSchemaSerializer,
+from .attestation import (
+    ATTEST_HEADER,
+    AttestationError,
+    Attestor,
+    SignedAttestation,
 )
-from .schema_producer import SchemaProducer, SchemaConsumer, DeserializedRecord
-from .traced import TracedProducer, TracedConsumer
 from .branches_admin import (
     BranchAdminClient,
     BranchAdminError,
     BranchMessage,
     BranchView,
 )
+from .circuit_breaker import (
+    CircuitBreaker,
+    CircuitBreakerConfig,
+    CircuitBreakerOpen,
+    CircuitState,
+)
+from .client import StreamlineClient
+
+# ``SearchHit`` is intentionally not re-exported from ``.consumer``: the public
+# ``streamline_sdk.SearchHit`` is the HTTP search client's dataclass imported
+# from ``.search`` below. Use ``streamline_sdk.consumer.SearchHit`` for the
+# wire-protocol variant.
+from .consumer import Consumer, ConsumerRecord
 from .contracts import (
     ContractsClient,
     ContractsError,
     ValidationError,
     ValidationResult,
 )
-from .attestation import (
-    ATTEST_HEADER,
-    Attestor,
-    AttestationError,
-    SignedAttestation,
-)
-from .verifier import (
-    StreamlineVerifier,
-    VerificationResult as AttestationVerificationResult,
-)
-from .validation import validate_topic_name
-from .search import (
-    SearchClient,
-    SearchError,
-    SearchHit,
-    SearchResult,
+from .exceptions import (
+    ConfigurationError,
+    ConnectionError,
+    ConsumerError,
+    ProducerError,
+    StreamlineError,
+    TopicError,
 )
 from .memory import (
     MemoryClient,
@@ -92,8 +78,34 @@ from .memory import (
     RecalledMemory,
     WrittenEntry,
 )
+from .metrics import ClientMetrics, MetricsSnapshot
+from .producer import Producer, ProducerRecord, RecordMetadata
+from .query import QueryClient, QueryResult
+from .retry import RetryConfig, retry_async, with_retry
+from .schema_producer import DeserializedRecord, SchemaConsumer, SchemaProducer
+from .search import (
+    SearchClient,
+    SearchError,
+    SearchHit,
+    SearchResult,
+)
+from .serializers import (
+    AvroSerializer,
+    JsonSchemaSerializer,
+    SchemaRegistryClient,
+    SchemaRegistryConfig,
+)
+from .telemetry import StreamlineTracing
+from .traced import TracedConsumer, TracedProducer
+from .validation import validate_topic_name
+from .verifier import (
+    StreamlineVerifier,
+)
+from .verifier import (
+    VerificationResult as AttestationVerificationResult,
+)
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     # Main client
@@ -111,6 +123,12 @@ __all__ = [
     "TopicInfo",
     "PartitionInfo",
     "BranchInfo",
+    "BrokerInfo",
+    "ClusterInfo",
+    "ConsumerGroupLag",
+    "ConsumerLag",
+    "InspectedMessage",
+    "MetricPoint",
     # Exceptions
     "StreamlineError",
     "ConnectionError",

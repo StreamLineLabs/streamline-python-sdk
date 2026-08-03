@@ -38,5 +38,5 @@ integration-test: ## Run integration tests (requires Docker)
 		fi; \
 		sleep 2; \
 	done
-	pytest tests/ -m integration --timeout=60 || true
+	STREAMLINE_INTEGRATION=1 pytest tests/ -m integration --timeout=60 || true
 	docker compose -f docker-compose.test.yml down -v

@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass, field
-from typing import Any, Optional
+from dataclasses import dataclass
+from typing import Any
 
 try:
     import aiohttp
@@ -44,7 +44,7 @@ class WrittenEntry:
     offset: int
 
     @classmethod
-    def from_json(cls, data: dict[str, Any]) -> "WrittenEntry":
+    def from_json(cls, data: dict[str, Any]) -> WrittenEntry:
         return cls(topic=data["topic"], offset=int(data["offset"]))
 
 
@@ -57,7 +57,7 @@ class RecalledMemory:
     score: float
 
     @classmethod
-    def from_json(cls, data: dict[str, Any]) -> "RecalledMemory":
+    def from_json(cls, data: dict[str, Any]) -> RecalledMemory:
         return cls(
             tier=data.get("tier", ""),
             topic=data.get("topic", ""),
@@ -86,8 +86,8 @@ class MemoryClient:
         kind: str,
         content: str,
         importance: float = 0.5,
-        tags: Optional[list[str]] = None,
-        skill: Optional[str] = None,
+        tags: list[str] | None = None,
+        skill: str | None = None,
     ) -> list[WrittenEntry]:
         """Write a memory for an agent.
 

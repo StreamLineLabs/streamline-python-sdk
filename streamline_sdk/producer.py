@@ -5,15 +5,19 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Optional, Dict, List, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from aiokafka import AIOKafkaProducer
 from aiokafka.errors import KafkaError
 
 from .circuit_breaker import CircuitBreakerOpen
 from .exceptions import (
-    ProducerError,
     ConnectionError as _ConnectionError,
+)
+from .exceptions import (
+    ProducerError,
+)
+from .exceptions import (
     TimeoutError as _TimeoutError,
 )
 from .validation import validate_topic_name
@@ -39,11 +43,11 @@ class ProducerRecord:
     """
 
     topic: str
-    value: Optional[bytes] = None
-    key: Optional[bytes] = None
+    value: bytes | None = None
+    key: bytes | None = None
     partition: int = -1
-    timestamp_ms: Optional[int] = None
-    headers: Optional[Dict[str, bytes]] = None
+    timestamp_ms: int | None = None
+    headers: dict[str, bytes] | None = None
 
 
 @dataclass
@@ -80,8 +84,8 @@ class Producer:
         client_config: Any,
         producer_config: Any,
         *,
-        circuit_breaker: Optional[CircuitBreaker] = None,
-        telemetry: Optional[Any] = None,
+        circuit_breaker: CircuitBreaker | None = None,
+        telemetry: Any | None = None,
     ):
         """Initialize the producer.
 
@@ -95,7 +99,7 @@ class Producer:
         self._producer_config = producer_config
         self._circuit_breaker = circuit_breaker
         self._telemetry = telemetry
-        self._producer: Optional[AIOKafkaProducer] = None
+        self._producer: AIOKafkaProducer | None = None
         self._started = False
         self._in_transaction = False
         self._transaction_buffer: list[ProducerRecord] = []
@@ -151,11 +155,11 @@ class Producer:
     async def send(
         self,
         topic: str,
-        value: Optional[bytes] = None,
-        key: Optional[bytes] = None,
-        partition: Optional[int] = None,
-        timestamp_ms: Optional[int] = None,
-        headers: Optional[Dict[str, bytes]] = None,
+        value: bytes | None = None,
+        key: bytes | None = None,
+        partition: int | None = None,
+        timestamp_ms: int | None = None,
+        headers: dict[str, bytes] | None = None,
     ) -> RecordMetadata:
         """Send a message to a topic.
 
@@ -176,6 +180,8 @@ class Producer:
         if self._producer is None:
             raise ProducerError("Producer not started")
 
+        producer = self._producer
+
         validate_topic_name(topic)
 
         # Convert headers to list of tuples
@@ -188,7 +194,7 @@ class Producer:
                 raise CircuitBreakerOpen()
 
             async def _do_send() -> RecordMetadata:
-                future = await self._producer.send(
+                future = await producer.send(
                     topic,
                     value=value,
                     key=key,
@@ -218,7 +224,9 @@ class Producer:
         except CircuitBreakerOpen:
             raise
         except KafkaError as e:
-            if self._circuit_breaker is not None and isinstance(e.__cause__, _RETRYABLE_EXCEPTIONS):
+            if self._circuit_breaker is not None and isinstance(
+                e.__cause__, _RETRYABLE_EXCEPTIONS
+            ):
                 self._circuit_breaker.record_failure()
             raise ProducerError(f"Failed to send message: {e}") from e
         except _RETRYABLE_EXCEPTIONS:
@@ -244,7 +252,7 @@ class Producer:
                 topic=record.topic,
                 partition=-1,
                 offset=-1,
-                timestamp=record.timestamp_ms or 0,
+                timestamp=datetime.fromtimestamp((record.timestamp_ms or 0) / 1000),
                 serialized_key_size=len(record.key) if record.key else 0,
                 serialized_value_size=len(record.value) if record.value else 0,
             )
@@ -260,8 +268,8 @@ class Producer:
         )
 
     async def send_batch(
-        self, records: List[ProducerRecord]
-    ) -> List[RecordMetadata]:
+        self, records: list[ProducerRecord]
+    ) -> list[RecordMetadata]:
         """Send multiple records.
 
         Args:
@@ -303,7 +311,7 @@ class Producer:
         self._in_transaction = True
         self._transaction_buffer = []
 
-    async def commit_transaction(self) -> List[RecordMetadata]:
+    async def commit_transaction(self) -> list[RecordMetadata]:
         """Commit the current transaction, sending all buffered messages atomically.
 
         Returns:
@@ -315,7 +323,7 @@ class Producer:
         if not self._in_transaction:
             raise RuntimeError("No transaction in progress")
         try:
-            results: List[RecordMetadata] = []
+            results: list[RecordMetadata] = []
             if self._transaction_buffer:
                 results = await self.send_batch(self._transaction_buffer)
             return results
@@ -339,7 +347,7 @@ class Producer:
         """Return True if a transaction is currently active."""
         return self._in_transaction
 
-    async def __aenter__(self) -> "Producer":
+    async def __aenter__(self) -> Producer:
         """Enter async context manager."""
         await self.start()
         return self

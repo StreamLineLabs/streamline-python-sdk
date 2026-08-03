@@ -1,27 +1,29 @@
 """SDK Conformance Test Suite — 46 tests per SDK_CONFORMANCE_SPEC.md
 
-Requires: docker compose -f docker-compose.conformance.yml up -d
+Requires a running Streamline server, e.g.::
+
+    docker compose -f docker-compose.test.yml up -d
+    CONFORMANCE=1 pytest tests/conformance -m conformance
 """
+
+from __future__ import annotations
+
 import asyncio
 import os
 import time
 
 import pytest
 
+from streamline_sdk import exceptions
+from streamline_sdk.admin import TopicConfig, TopicInfo
 from streamline_sdk.client import StreamlineClient
 from streamline_sdk.producer import ProducerRecord, RecordMetadata
-from streamline_sdk.consumer import ConsumerRecord
-from streamline_sdk.admin import TopicConfig, TopicInfo
-from streamline_sdk import exceptions
 
 BOOTSTRAP = os.environ.get("STREAMLINE_BOOTSTRAP", "localhost:9092")
 HTTP_URL = os.environ.get("STREAMLINE_HTTP", "http://localhost:9094")
 
-# Skip the entire module when no server is available.
-pytestmark = pytest.mark.skipif(
-    os.environ.get("CONFORMANCE", "0") != "1",
-    reason="Set CONFORMANCE=1 to run conformance tests against a live server",
-)
+# Server-dependent: ``tests/conftest.py`` skips these unless CONFORMANCE=1.
+pytestmark = pytest.mark.conformance
 
 
 def unique_topic(test_id: str) -> str:
@@ -482,28 +484,45 @@ class TestAuthentication:
 
 SCHEMA_REGISTRY_URL = "http://localhost:9094"
 
-AVRO_SCHEMA = '{"type":"record","name":"User","fields":[{"name":"id","type":"int"},{"name":"name","type":"string"}]}'
-JSON_SCHEMA = '{"type":"object","properties":{"id":{"type":"integer"},"name":{"type":"string"}},"required":["id","name"]}'
+AVRO_SCHEMA = (
+    '{"type":"record","name":"User",'
+    '"fields":[{"name":"id","type":"int"},{"name":"name","type":"string"}]}'
+)
+JSON_SCHEMA = (
+    '{"type":"object",'
+    '"properties":{"id":{"type":"integer"},"name":{"type":"string"}},'
+    '"required":["id","name"]}'
+)
 
 
 class TestSchemaRegistry:
     @pytest.fixture(autouse=True)
     def setup(self):
         """Initialize schema registry client for each test."""
-        from streamline_sdk.serializers import SchemaRegistryClient, SchemaRegistryConfig
-        self.client = SchemaRegistryClient(SchemaRegistryConfig(url=SCHEMA_REGISTRY_URL))
+        from streamline_sdk.serializers import (
+            SchemaRegistryClient,
+            SchemaRegistryConfig,
+        )
+
+        self.client = SchemaRegistryClient(
+            SchemaRegistryConfig(url=SCHEMA_REGISTRY_URL)
+        )
 
     @pytest.mark.asyncio
     async def test_s01_register_schema(self):
         """Register a schema and verify an ID is returned."""
-        schema_id = await self.client.register_schema("test-s01-value", AVRO_SCHEMA, "AVRO")
+        schema_id = await self.client.register_schema(
+            "test-s01-value", AVRO_SCHEMA, "AVRO"
+        )
         assert isinstance(schema_id, int)
         assert schema_id > 0
 
     @pytest.mark.asyncio
     async def test_s02_get_by_id(self):
         """Register a schema, then retrieve it by ID."""
-        schema_id = await self.client.register_schema("test-s02-value", AVRO_SCHEMA, "AVRO")
+        schema_id = await self.client.register_schema(
+            "test-s02-value", AVRO_SCHEMA, "AVRO"
+        )
         schema_str = await self.client.get_schema(schema_id)
         assert "User" in schema_str
 
@@ -519,13 +538,17 @@ class TestSchemaRegistry:
     async def test_s04_compatibility_check(self):
         """Register a schema and check compatibility of a new version."""
         await self.client.register_schema("test-s04-value", AVRO_SCHEMA, "AVRO")
-        is_compat = await self.client.check_compatibility("test-s04-value", AVRO_SCHEMA, "AVRO")
+        is_compat = await self.client.check_compatibility(
+            "test-s04-value", AVRO_SCHEMA, "AVRO"
+        )
         assert isinstance(is_compat, bool)
 
     @pytest.mark.asyncio
     async def test_s05_avro_schema(self):
         """Register an Avro schema specifically."""
-        schema_id = await self.client.register_schema("test-s05-avro", AVRO_SCHEMA, "AVRO")
+        schema_id = await self.client.register_schema(
+            "test-s05-avro", AVRO_SCHEMA, "AVRO"
+        )
         assert schema_id > 0
         schema_str = await self.client.get_schema(schema_id)
         assert "record" in schema_str
@@ -533,7 +556,9 @@ class TestSchemaRegistry:
     @pytest.mark.asyncio
     async def test_s06_json_schema(self):
         """Register a JSON Schema specifically."""
-        schema_id = await self.client.register_schema("test-s06-json", JSON_SCHEMA, "JSON")
+        schema_id = await self.client.register_schema(
+            "test-s06-json", JSON_SCHEMA, "JSON"
+        )
         assert schema_id > 0
         schema_str = await self.client.get_schema(schema_id)
         assert "object" in schema_str
@@ -597,7 +622,9 @@ class TestErrorHandling:
     async def test_e01_connection_refused(self):
         """Connecting to a non-existent server raises ConnectionError."""
         client = StreamlineClient(bootstrap_servers="localhost:19999")
-        with pytest.raises((exceptions.ConnectionError, exceptions.StreamlineError, Exception)):
+        with pytest.raises(
+            (exceptions.ConnectionError, exceptions.StreamlineError, Exception)
+        ):
             await client.start()
         await client.close()
 

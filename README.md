@@ -101,6 +101,8 @@ W3C TraceContext format.
 
 ### Unit Tests
 
+The default run is self-contained — it never contacts a Streamline server:
+
 ```bash
 pip install -e ".[dev]"
 pytest tests/
@@ -108,11 +110,15 @@ pytest tests/
 
 ### Integration Tests
 
-Requires a running Streamline server:
+Requires a running Streamline server. Server-dependent tests are marked
+`integration` (or `conformance`) and are skipped unless explicitly enabled
+via `STREAMLINE_INTEGRATION=1` (or `CONFORMANCE=1`):
 
 ```bash
 docker compose -f docker-compose.test.yml up -d
-pytest tests/ -m integration
+STREAMLINE_INTEGRATION=1 pytest tests/ -m integration
+# or simply:
+make integration-test
 ```
 
 ## Testcontainers
