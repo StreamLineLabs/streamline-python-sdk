@@ -12,15 +12,19 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Collection
 from typing import Any
 
 from .exceptions import TopicError
 
 try:
     import aiohttp
+
     HAS_AIOHTTP = True
 except ImportError:
     HAS_AIOHTTP = False
+
+ADMIN_HTTP_TIMEOUT_SECONDS = 10
 
 
 class _AdminHttpTransport:
@@ -45,20 +49,22 @@ class _AdminHttpTransport:
         if HAS_AIOHTTP:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
-                    url, timeout=aiohttp.ClientTimeout(total=10)
+                    url,
+                    timeout=aiohttp.ClientTimeout(total=ADMIN_HTTP_TIMEOUT_SECONDS),
                 ) as resp:
-                    if resp.status == 404:
-                        raise TopicError(f"Not found: {path}")
-                    if resp.status != 200:
-                        text = await resp.text()
-                        raise TopicError(f"HTTP {resp.status}: {text}")
+                    await self._raise_for_status(resp, path, {200})
                     return await resp.json()
         else:
             import urllib.request
+
             req = urllib.request.Request(url)
+
             def _sync_get():
-                with urllib.request.urlopen(req, timeout=10) as resp:
+                with urllib.request.urlopen(
+                    req, timeout=ADMIN_HTTP_TIMEOUT_SECONDS
+                ) as resp:
                     return json.loads(resp.read())
+
             return await asyncio.to_thread(_sync_get)
 
     async def post(self, path: str, body: Any) -> Any:
@@ -68,22 +74,25 @@ class _AdminHttpTransport:
         if HAS_AIOHTTP:
             async with aiohttp.ClientSession() as session:
                 async with session.post(
-                    url, json=body, timeout=aiohttp.ClientTimeout(total=10)
+                    url,
+                    json=body,
+                    timeout=aiohttp.ClientTimeout(total=ADMIN_HTTP_TIMEOUT_SECONDS),
                 ) as resp:
-                    if resp.status == 404:
-                        raise TopicError(f"Not found: {path}")
-                    if resp.status not in (200, 201):
-                        text = await resp.text()
-                        raise TopicError(f"HTTP {resp.status}: {text}")
+                    await self._raise_for_status(resp, path, {200, 201})
                     return await resp.json()
         else:
             import urllib.request
+
             payload = json.dumps(body).encode("utf-8")
             req = urllib.request.Request(url, data=payload, method="POST")
             req.add_header("Content-Type", "application/json")
+
             def _sync_post():
-                with urllib.request.urlopen(req, timeout=10) as resp:
+                with urllib.request.urlopen(
+                    req, timeout=ADMIN_HTTP_TIMEOUT_SECONDS
+                ) as resp:
                     return json.loads(resp.read())
+
             return await asyncio.to_thread(_sync_post)
 
     async def delete(self, path: str) -> None:
@@ -93,17 +102,27 @@ class _AdminHttpTransport:
         if HAS_AIOHTTP:
             async with aiohttp.ClientSession() as session:
                 async with session.delete(
-                    url, timeout=aiohttp.ClientTimeout(total=10)
+                    url,
+                    timeout=aiohttp.ClientTimeout(total=ADMIN_HTTP_TIMEOUT_SECONDS),
                 ) as resp:
-                    if resp.status == 404:
-                        raise TopicError(f"Not found: {path}")
-                    if resp.status >= 300:
-                        text = await resp.text()
-                        raise TopicError(f"HTTP {resp.status}: {text}")
+                    await self._raise_for_status(resp, path, range(200, 300))
         else:
             import urllib.request
+
             req = urllib.request.Request(url, method="DELETE")
+
             def _sync_delete():
-                with urllib.request.urlopen(req, timeout=10):
+                with urllib.request.urlopen(req, timeout=ADMIN_HTTP_TIMEOUT_SECONDS):
                     pass
+
             await asyncio.to_thread(_sync_delete)
+
+    @staticmethod
+    async def _raise_for_status(
+        response: Any, path: str, success_statuses: Collection[int]
+    ) -> None:
+        if response.status == 404:
+            raise TopicError(f"Not found: {path}")
+        if response.status not in success_statuses:
+            text = await response.text()
+            raise TopicError(f"HTTP {response.status}: {text}")

@@ -673,8 +673,3 @@ class Admin:
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         """Exit async context manager."""
         await self.close()
-# correct offset reset behavior on new consumer group
-# resolve event loop conflict in nested async calls
-
-# add async context manager for producer lifecycle
-# extract connection pool into dedicated module
