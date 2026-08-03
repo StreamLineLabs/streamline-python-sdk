@@ -236,7 +236,7 @@ class Admin:
         self._client_config = client_config
         self._admin: AIOKafkaAdminClient | None = None
         self._started = False
-        self._http = _AdminHttpTransport(client_config.http_url)
+        self._http = _AdminHttpTransport(lambda: self._client_config.http_url)
 
     async def start(self) -> None:
         """Start the admin client."""

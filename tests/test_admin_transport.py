@@ -575,3 +575,12 @@ class TestHttpDeleteUrllibFallback:
         await transport.delete("/v1/branches/exp-a")
 
         assert len(to_thread_calls) == 1
+
+
+def test_transport_resolves_dynamic_base_url():
+    current = {"url": "http://first:9094"}
+    transport = _AdminHttpTransport(lambda: current["url"])
+
+    assert transport._current_base_url() == "http://first:9094"
+    current["url"] = "http://second:9094"
+    assert transport._current_base_url() == "http://second:9094"

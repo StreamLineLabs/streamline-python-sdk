@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from typing import Any
 
 from .exceptions import TopicError
@@ -34,17 +34,20 @@ class _AdminHttpTransport:
     ``urllib.request`` call executed on a worker thread otherwise.
     """
 
-    def __init__(self, base_url: str) -> None:
+    def __init__(self, base_url: str | Callable[[], str]) -> None:
         """Initialize the transport.
 
         Args:
-            base_url: Base URL of the Streamline HTTP REST API.
+            base_url: Base URL or a callable that resolves the current URL.
         """
         self._base_url = base_url
 
+    def _current_base_url(self) -> str:
+        return self._base_url() if callable(self._base_url) else self._base_url
+
     async def get(self, path: str) -> Any:
         """Make an HTTP GET request to the Streamline REST API."""
-        url = f"{self._base_url}{path}"
+        url = f"{self._current_base_url()}{path}"
 
         if HAS_AIOHTTP:
             async with aiohttp.ClientSession() as session:
@@ -69,7 +72,7 @@ class _AdminHttpTransport:
 
     async def post(self, path: str, body: Any) -> Any:
         """Make an HTTP POST request to the Streamline REST API."""
-        url = f"{self._base_url}{path}"
+        url = f"{self._current_base_url()}{path}"
 
         if HAS_AIOHTTP:
             async with aiohttp.ClientSession() as session:
@@ -97,7 +100,7 @@ class _AdminHttpTransport:
 
     async def delete(self, path: str) -> None:
         """Make an HTTP DELETE request to the Streamline REST API."""
-        url = f"{self._base_url}{path}"
+        url = f"{self._current_base_url()}{path}"
 
         if HAS_AIOHTTP:
             async with aiohttp.ClientSession() as session:
