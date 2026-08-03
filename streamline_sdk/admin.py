@@ -2,22 +2,15 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
 from dataclasses import dataclass, field
 from typing import Any
 
 from aiokafka.admin import AIOKafkaAdminClient, NewTopic
 from aiokafka.errors import KafkaError
 
+from ._admin_http import _AdminHttpTransport
 from .exceptions import TopicError
 from .validation import validate_topic_name
-
-try:
-    import aiohttp
-    HAS_AIOHTTP = True
-except ImportError:
-    HAS_AIOHTTP = False
 
 
 @dataclass
@@ -243,6 +236,7 @@ class Admin:
         self._client_config = client_config
         self._admin: AIOKafkaAdminClient | None = None
         self._started = False
+        self._http = _AdminHttpTransport(client_config.http_url)
 
     async def start(self) -> None:
         """Start the admin client."""
@@ -373,7 +367,7 @@ class Admin:
             raise TopicError("Admin client not started")
 
         try:
-            data = await self._http_get("/v1/topics")
+            data = await self._http.get("/v1/topics")
             return [t["name"] for t in data if not t.get("name", "").startswith("__")]
         except TopicError:
             raise
@@ -393,7 +387,7 @@ class Admin:
             raise TopicError("Admin client not started")
 
         try:
-            data = await self._http_get(f"/v1/topics/{name}")
+            data = await self._http.get(f"/v1/topics/{name}")
             return TopicInfo(
                 name=data.get("name", name),
                 partitions=data.get("partitions", 0),
@@ -404,79 +398,6 @@ class Admin:
             raise
         except Exception as e:
             raise TopicError(f"Failed to describe topic '{name}': {e}") from e
-
-    async def _http_get(self, path: str) -> Any:
-        """Make an HTTP GET request to the Streamline REST API."""
-        http_url = self._client_config.http_url
-        url = f"{http_url}{path}"
-
-        if HAS_AIOHTTP:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    url, timeout=aiohttp.ClientTimeout(total=10)
-                ) as resp:
-                    if resp.status == 404:
-                        raise TopicError(f"Not found: {path}")
-                    if resp.status != 200:
-                        text = await resp.text()
-                        raise TopicError(f"HTTP {resp.status}: {text}")
-                    return await resp.json()
-        else:
-            import urllib.request
-            req = urllib.request.Request(url)
-            def _sync_get():
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    return json.loads(resp.read())
-            return await asyncio.to_thread(_sync_get)
-
-    async def _http_post(self, path: str, body: Any) -> Any:
-        """Make an HTTP POST request to the Streamline REST API."""
-        http_url = self._client_config.http_url
-        url = f"{http_url}{path}"
-
-        if HAS_AIOHTTP:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    url, json=body, timeout=aiohttp.ClientTimeout(total=10)
-                ) as resp:
-                    if resp.status == 404:
-                        raise TopicError(f"Not found: {path}")
-                    if resp.status not in (200, 201):
-                        text = await resp.text()
-                        raise TopicError(f"HTTP {resp.status}: {text}")
-                    return await resp.json()
-        else:
-            import urllib.request
-            payload = json.dumps(body).encode("utf-8")
-            req = urllib.request.Request(url, data=payload, method="POST")
-            req.add_header("Content-Type", "application/json")
-            def _sync_post():
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    return json.loads(resp.read())
-            return await asyncio.to_thread(_sync_post)
-
-    async def _http_delete(self, path: str) -> None:
-        """Make an HTTP DELETE request to the Streamline REST API."""
-        http_url = self._client_config.http_url
-        url = f"{http_url}{path}"
-
-        if HAS_AIOHTTP:
-            async with aiohttp.ClientSession() as session:
-                async with session.delete(
-                    url, timeout=aiohttp.ClientTimeout(total=10)
-                ) as resp:
-                    if resp.status == 404:
-                        raise TopicError(f"Not found: {path}")
-                    if resp.status >= 300:
-                        text = await resp.text()
-                        raise TopicError(f"HTTP {resp.status}: {text}")
-        else:
-            import urllib.request
-            req = urllib.request.Request(url, method="DELETE")
-            def _sync_delete():
-                with urllib.request.urlopen(req, timeout=10):
-                    pass
-            await asyncio.to_thread(_sync_delete)
 
     async def list_consumer_groups(self) -> list[str]:
         """List all consumer groups.
@@ -540,7 +461,7 @@ class Admin:
         Returns:
             ClusterInfo with broker details.
         """
-        data = await self._http_get("/v1/cluster")
+        data = await self._http.get("/v1/cluster")
         brokers = [
             BrokerInfo(
                 id=b.get("id", 0),
@@ -566,7 +487,7 @@ class Admin:
         Returns:
             ConsumerGroupLag with per-partition lag.
         """
-        data = await self._http_get(f"/v1/consumer-groups/{group_id}/lag")
+        data = await self._http.get(f"/v1/consumer-groups/{group_id}/lag")
         partitions = [
             ConsumerLag(
                 topic=p.get("topic", ""),
@@ -595,7 +516,7 @@ class Admin:
         Returns:
             ConsumerGroupLag scoped to the given topic.
         """
-        data = await self._http_get(f"/v1/consumer-groups/{group_id}/lag/{topic}")
+        data = await self._http.get(f"/v1/consumer-groups/{group_id}/lag/{topic}")
         partitions = [
             ConsumerLag(
                 topic=p.get("topic", topic),
@@ -633,7 +554,7 @@ class Admin:
         path = f"/v1/inspect/{topic}?partition={partition}&limit={limit}"
         if offset is not None:
             path += f"&offset={offset}"
-        data = await self._http_get(path)
+        data = await self._http.get(path)
         return [
             InspectedMessage(
                 offset=m.get("offset", 0),
@@ -658,7 +579,7 @@ class Admin:
         Returns:
             List of latest messages.
         """
-        data = await self._http_get(f"/v1/inspect/{topic}/latest?count={count}")
+        data = await self._http.get(f"/v1/inspect/{topic}/latest?count={count}")
         return [
             InspectedMessage(
                 offset=m.get("offset", 0),
@@ -677,7 +598,7 @@ class Admin:
         Returns:
             List of metric data points.
         """
-        data = await self._http_get("/v1/metrics/history")
+        data = await self._http.get("/v1/metrics/history")
         return [
             MetricPoint(
                 name=m.get("name", ""),
@@ -704,7 +625,7 @@ class Admin:
         body: dict[str, Any] = {"name": name, "base_topic": base_topic}
         if base_offsets:
             body["base_offsets"] = base_offsets
-        data = await self._http_post("/v1/branches", body)
+        data = await self._http.post("/v1/branches", body)
         return BranchInfo(
             name=data.get("name", name),
             base_topic=data.get("base_topic", base_topic),
@@ -724,7 +645,7 @@ class Admin:
         path = "/v1/branches"
         if topic:
             path += f"?topic={topic}"
-        data = await self._http_get(path)
+        data = await self._http.get(path)
         items = data if isinstance(data, list) else data.get("items", [])
         return [
             BranchInfo(
@@ -742,7 +663,7 @@ class Admin:
         Args:
             branch_id: Branch identifier.
         """
-        await self._http_delete(f"/v1/branches/{branch_id}")
+        await self._http.delete(f"/v1/branches/{branch_id}")
 
     async def __aenter__(self) -> Admin:
         """Enter async context manager."""

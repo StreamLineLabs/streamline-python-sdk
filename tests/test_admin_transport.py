@@ -1,14 +1,14 @@
-"""Characterization tests for ``Admin._http_get`` / ``_http_post`` /
-``_http_delete`` transport behavior.
+"""Characterization tests for ``_AdminHttpTransport.get`` / ``post`` /
+``delete`` transport behavior.
 
 These tests pin down the *current* behavior of the two transport branches
-inside ``streamline_sdk.admin``:
+inside ``streamline_sdk._admin_http``:
 
 * the ``aiohttp``-backed branch (``HAS_AIOHTTP`` truthy), and
 * the ``urllib``-based fallback branch (``HAS_AIOHTTP`` falsy).
 
-They exist so that behavior is preserved if/when this transport code is
-extracted into its own module. No production code is modified here and no
+They exercise ``_AdminHttpTransport`` directly (the private module that
+``streamline_sdk.admin.Admin`` delegates to for all HTTP transport). No
 real network I/O is performed — both branches are driven through small,
 deterministic fakes/monkeypatches of ``aiohttp`` and ``urllib.request``.
 """
@@ -23,16 +23,15 @@ from typing import Any, Callable
 
 import pytest
 
-from streamline_sdk import admin as admin_module
-from streamline_sdk.admin import Admin
-from streamline_sdk.client import ClientConfig
+from streamline_sdk import _admin_http as admin_module
+from streamline_sdk._admin_http import _AdminHttpTransport
 from streamline_sdk.exceptions import TopicError
 
 HTTP_URL = "http://example-host:9094"
 
 
-def _make_admin() -> Admin:
-    return Admin(ClientConfig(http_url=HTTP_URL))
+def _make_transport() -> _AdminHttpTransport:
+    return _AdminHttpTransport(HTTP_URL)
 
 
 # --------------------------------------------------------------------- #
@@ -120,7 +119,7 @@ class _FakeClientSession:
 
 
 class _FakeAiohttpModule:
-    """Stand-in for the ``aiohttp`` module, exposing just what admin.py uses."""
+    """Stand-in for the ``aiohttp`` module, exposing just what _admin_http.py uses."""
 
     def __init__(
         self, calls: list[RecordedCall], response_factory: ResponseFactory
@@ -137,7 +136,7 @@ class _FakeAiohttpModule:
 def install_fake_aiohttp(
     monkeypatch: pytest.MonkeyPatch,
 ) -> Callable[[ResponseFactory], list[RecordedCall]]:
-    """Install a fake ``aiohttp`` module into ``admin`` and force the
+    """Install a fake ``aiohttp`` module into ``_admin_http`` and force the
     aiohttp branch to be taken, regardless of whether real aiohttp is
     installed in the test environment."""
 
@@ -152,7 +151,7 @@ def install_fake_aiohttp(
 
 
 # --------------------------------------------------------------------- #
-# aiohttp branch: _http_get
+# aiohttp branch: get
 # --------------------------------------------------------------------- #
 
 
@@ -165,9 +164,9 @@ class TestHttpGetAiohttp:
                 200, json_body={"topics": ["a", "b"]}
             )
         )
-        admin = _make_admin()
+        transport = _make_transport()
 
-        result = await admin._http_get("/v1/topics")
+        result = await transport.get("/v1/topics")
 
         assert result == {"topics": ["a", "b"]}
         assert len(calls) == 1
@@ -181,10 +180,10 @@ class TestHttpGetAiohttp:
         self, install_fake_aiohttp: Callable[[ResponseFactory], list[RecordedCall]]
     ) -> None:
         install_fake_aiohttp(lambda method, url, body: _FakeAiohttpResponse(404))
-        admin = _make_admin()
+        transport = _make_transport()
 
         with pytest.raises(TopicError) as exc_info:
-            await admin._http_get("/v1/topics/missing")
+            await transport.get("/v1/topics/missing")
 
         assert str(exc_info.value).startswith("Not found: /v1/topics/missing")
 
@@ -196,16 +195,16 @@ class TestHttpGetAiohttp:
                 500, text_body="internal boom"
             )
         )
-        admin = _make_admin()
+        transport = _make_transport()
 
         with pytest.raises(TopicError) as exc_info:
-            await admin._http_get("/v1/topics")
+            await transport.get("/v1/topics")
 
         assert str(exc_info.value).startswith("HTTP 500: internal boom")
 
 
 # --------------------------------------------------------------------- #
-# aiohttp branch: _http_post
+# aiohttp branch: post
 # --------------------------------------------------------------------- #
 
 
@@ -216,10 +215,10 @@ class TestHttpPostAiohttp:
         calls = install_fake_aiohttp(
             lambda method, url, body: _FakeAiohttpResponse(200, json_body={"id": 1})
         )
-        admin = _make_admin()
+        transport = _make_transport()
         body = {"name": "exp-a", "base_topic": "orders"}
 
-        result = await admin._http_post("/v1/branches", body)
+        result = await transport.post("/v1/branches", body)
 
         assert result == {"id": 1}
         method, url, timeout_total, sent_body = calls[0]
@@ -239,9 +238,9 @@ class TestHttpPostAiohttp:
                 accepted_status, json_body={"ok": True}
             )
         )
-        admin = _make_admin()
+        transport = _make_transport()
 
-        result = await admin._http_post("/v1/branches", {"name": "x"})
+        result = await transport.post("/v1/branches", {"name": "x"})
 
         assert result == {"ok": True}
 
@@ -249,10 +248,10 @@ class TestHttpPostAiohttp:
         self, install_fake_aiohttp: Callable[[ResponseFactory], list[RecordedCall]]
     ) -> None:
         install_fake_aiohttp(lambda method, url, body: _FakeAiohttpResponse(404))
-        admin = _make_admin()
+        transport = _make_transport()
 
         with pytest.raises(TopicError) as exc_info:
-            await admin._http_post("/v1/branches", {"name": "x"})
+            await transport.post("/v1/branches", {"name": "x"})
 
         assert str(exc_info.value).startswith("Not found: /v1/branches")
 
@@ -262,16 +261,16 @@ class TestHttpPostAiohttp:
         install_fake_aiohttp(
             lambda method, url, body: _FakeAiohttpResponse(400, text_body="bad body")
         )
-        admin = _make_admin()
+        transport = _make_transport()
 
         with pytest.raises(TopicError) as exc_info:
-            await admin._http_post("/v1/branches", {"name": "x"})
+            await transport.post("/v1/branches", {"name": "x"})
 
         assert str(exc_info.value).startswith("HTTP 400: bad body")
 
 
 # --------------------------------------------------------------------- #
-# aiohttp branch: _http_delete
+# aiohttp branch: delete
 # --------------------------------------------------------------------- #
 
 
@@ -282,10 +281,10 @@ class TestHttpDeleteAiohttp:
         calls = install_fake_aiohttp(
             lambda method, url, body: _FakeAiohttpResponse(200)
         )
-        admin = _make_admin()
+        transport = _make_transport()
 
-        # `_http_delete` is annotated to return ``None`` on success.
-        await admin._http_delete("/v1/branches/exp-a")
+        # `delete` is annotated to return ``None`` on success.
+        await transport.delete("/v1/branches/exp-a")
 
         method, url, timeout_total, _ = calls[0]
         assert method == "DELETE"
@@ -296,10 +295,10 @@ class TestHttpDeleteAiohttp:
         self, install_fake_aiohttp: Callable[[ResponseFactory], list[RecordedCall]]
     ) -> None:
         install_fake_aiohttp(lambda method, url, body: _FakeAiohttpResponse(404))
-        admin = _make_admin()
+        transport = _make_transport()
 
         with pytest.raises(TopicError) as exc_info:
-            await admin._http_delete("/v1/branches/missing")
+            await transport.delete("/v1/branches/missing")
 
         assert str(exc_info.value).startswith("Not found: /v1/branches/missing")
 
@@ -309,10 +308,10 @@ class TestHttpDeleteAiohttp:
         install_fake_aiohttp(
             lambda method, url, body: _FakeAiohttpResponse(503, text_body="down")
         )
-        admin = _make_admin()
+        transport = _make_transport()
 
         with pytest.raises(TopicError) as exc_info:
-            await admin._http_delete("/v1/branches/exp-a")
+            await transport.delete("/v1/branches/exp-a")
 
         assert str(exc_info.value).startswith("HTTP 503: down")
 
@@ -382,9 +381,9 @@ class TestHttpGetUrllibFallback:
                 json.dumps({"topics": ["a"]}).encode("utf-8")
             )
         )
-        admin = _make_admin()
+        transport = _make_transport()
 
-        result = await admin._http_get("/v1/topics")
+        result = await transport.get("/v1/topics")
 
         assert result == {"topics": ["a"]}
         assert len(calls) == 1
@@ -401,13 +400,13 @@ class TestHttpGetUrllibFallback:
             raise urllib.error.URLError("connection refused")
 
         fake_urlopen(_raise)
-        admin = _make_admin()
+        transport = _make_transport()
 
         # Characterizes current behavior: unlike the aiohttp branch, the
         # urllib fallback does not translate errors into TopicError — the
         # raw urllib error propagates unchanged.
         with pytest.raises(urllib.error.URLError):
-            await admin._http_get("/v1/topics")
+            await transport.get("/v1/topics")
 
     async def test_http_error_propagates_uncaught(
         self,
@@ -419,10 +418,10 @@ class TestHttpGetUrllibFallback:
             )
 
         fake_urlopen(_raise)
-        admin = _make_admin()
+        transport = _make_transport()
 
         with pytest.raises(urllib.error.HTTPError) as exc_info:
-            await admin._http_get("/v1/topics/missing")
+            await transport.get("/v1/topics/missing")
         assert exc_info.value.code == 404
 
     async def test_uses_asyncio_to_thread(
@@ -433,7 +432,7 @@ class TestHttpGetUrllibFallback:
         fake_urlopen(
             lambda req, timeout: _FakeUrllibResponse(json.dumps({}).encode("utf-8"))
         )
-        admin = _make_admin()
+        transport = _make_transport()
 
         to_thread_calls: list[Any] = []
         real_to_thread = admin_module.asyncio.to_thread
@@ -444,7 +443,7 @@ class TestHttpGetUrllibFallback:
 
         monkeypatch.setattr(admin_module.asyncio, "to_thread", _recording_to_thread)
 
-        await admin._http_get("/v1/topics")
+        await transport.get("/v1/topics")
 
         assert len(to_thread_calls) == 1
 
@@ -460,10 +459,10 @@ class TestHttpPostUrllibFallback:
                 json.dumps({"id": 42}).encode("utf-8")
             )
         )
-        admin = _make_admin()
+        transport = _make_transport()
         body = {"name": "exp-a", "base_topic": "orders"}
 
-        result = await admin._http_post("/v1/branches", body)
+        result = await transport.post("/v1/branches", body)
 
         assert result == {"id": 42}
         req, timeout = calls[0]
@@ -481,10 +480,10 @@ class TestHttpPostUrllibFallback:
             raise urllib.error.URLError("boom")
 
         fake_urlopen(_raise)
-        admin = _make_admin()
+        transport = _make_transport()
 
         with pytest.raises(urllib.error.URLError):
-            await admin._http_post("/v1/branches", {"name": "x"})
+            await transport.post("/v1/branches", {"name": "x"})
 
     async def test_uses_asyncio_to_thread(
         self,
@@ -494,7 +493,7 @@ class TestHttpPostUrllibFallback:
         fake_urlopen(
             lambda req, timeout: _FakeUrllibResponse(json.dumps({}).encode("utf-8"))
         )
-        admin = _make_admin()
+        transport = _make_transport()
 
         to_thread_calls: list[Any] = []
         real_to_thread = admin_module.asyncio.to_thread
@@ -505,7 +504,7 @@ class TestHttpPostUrllibFallback:
 
         monkeypatch.setattr(admin_module.asyncio, "to_thread", _recording_to_thread)
 
-        await admin._http_post("/v1/branches", {"name": "x"})
+        await transport.post("/v1/branches", {"name": "x"})
 
         assert len(to_thread_calls) == 1
 
@@ -517,10 +516,10 @@ class TestHttpDeleteUrllibFallback:
         fake_urlopen: Callable[[UrlopenHandler], list[Any]],
     ) -> None:
         calls = fake_urlopen(lambda req, timeout: _FakeUrllibResponse(b""))
-        admin = _make_admin()
+        transport = _make_transport()
 
-        # `_http_delete` is annotated to return ``None`` on success.
-        await admin._http_delete("/v1/branches/exp-a")
+        # `delete` is annotated to return ``None`` on success.
+        await transport.delete("/v1/branches/exp-a")
 
         req, timeout = calls[0]
         assert req.get_method() == "DELETE"
@@ -535,10 +534,10 @@ class TestHttpDeleteUrllibFallback:
             raise urllib.error.URLError("boom")
 
         fake_urlopen(_raise)
-        admin = _make_admin()
+        transport = _make_transport()
 
         with pytest.raises(urllib.error.URLError):
-            await admin._http_delete("/v1/branches/exp-a")
+            await transport.delete("/v1/branches/exp-a")
 
     async def test_http_error_propagates_uncaught(
         self,
@@ -550,10 +549,10 @@ class TestHttpDeleteUrllibFallback:
             )
 
         fake_urlopen(_raise)
-        admin = _make_admin()
+        transport = _make_transport()
 
         with pytest.raises(urllib.error.HTTPError) as exc_info:
-            await admin._http_delete("/v1/branches/exp-a")
+            await transport.delete("/v1/branches/exp-a")
         assert exc_info.value.code == 500
 
     async def test_uses_asyncio_to_thread(
@@ -562,7 +561,7 @@ class TestHttpDeleteUrllibFallback:
         fake_urlopen: Callable[[UrlopenHandler], list[Any]],
     ) -> None:
         fake_urlopen(lambda req, timeout: _FakeUrllibResponse(b""))
-        admin = _make_admin()
+        transport = _make_transport()
 
         to_thread_calls: list[Any] = []
         real_to_thread = admin_module.asyncio.to_thread
@@ -573,6 +572,6 @@ class TestHttpDeleteUrllibFallback:
 
         monkeypatch.setattr(admin_module.asyncio, "to_thread", _recording_to_thread)
 
-        await admin._http_delete("/v1/branches/exp-a")
+        await transport.delete("/v1/branches/exp-a")
 
         assert len(to_thread_calls) == 1
