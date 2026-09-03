@@ -27,6 +27,7 @@ try:
 except ImportError:  # pragma: no cover - import guard
     _HAS_AIOHTTP = False
 
+from ._url import encode_path_segment
 from .exceptions import StreamlineError
 
 
@@ -118,13 +119,15 @@ class BranchAdminClient:
     async def get(self, branch_id: str) -> BranchView:
         """Get a single branch by id (``<topic>/<name>``)."""
         data = await self._request(
-            "GET", f"/api/v1/branches/{branch_id}"
+            "GET", f"/api/v1/branches/{encode_path_segment(branch_id)}"
         )
         return BranchView.from_json(data)
 
     async def delete(self, branch_id: str) -> None:
         """Delete a branch."""
-        await self._request("DELETE", f"/api/v1/branches/{branch_id}")
+        await self._request(
+            "DELETE", f"/api/v1/branches/{encode_path_segment(branch_id)}"
+        )
 
     async def append(
         self,
@@ -138,14 +141,15 @@ class BranchAdminClient:
         msg = BranchMessage(role=role, text=text, timestamp_ms=timestamp_ms)
         await self._request(
             "POST",
-            f"/api/v1/branches/{branch_id}/messages",
+            f"/api/v1/branches/{encode_path_segment(branch_id)}/messages",
             json_body=msg.to_json(),
         )
 
     async def messages(self, branch_id: str) -> builtins.list[BranchMessage]:
         """Read all messages on a branch."""
         data = await self._request(
-            "GET", f"/api/v1/branches/{branch_id}/messages"
+            "GET",
+            f"/api/v1/branches/{encode_path_segment(branch_id)}/messages",
         )
         items = data if isinstance(data, list) else data.get("messages", [])
         return [BranchMessage.from_json(m) for m in items]
@@ -163,9 +167,7 @@ class BranchAdminClient:
         if _HAS_AIOHTTP:
             timeout = aiohttp.ClientTimeout(total=self.timeout)
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.request(
-                    method, url, json=json_body
-                ) as resp:
+                async with session.request(method, url, json=json_body) as resp:
                     body_text = await resp.text()
                     self._check(resp.status, body_text, method, path)
                     if not body_text:
@@ -183,9 +185,7 @@ class BranchAdminClient:
             if json_body is not None:
                 data = json.dumps(json_body).encode("utf-8")
                 headers["Content-Type"] = "application/json"
-            req = urllib.request.Request(
-                url, data=data, headers=headers, method=method
-            )
+            req = urllib.request.Request(url, data=data, headers=headers, method=method)
 
             def _sync() -> Any:
                 try:
@@ -204,9 +204,7 @@ class BranchAdminClient:
     def _check(status: int, body: str, method: str, path: str) -> None:
         if 200 <= status < 300:
             return
-        raise BranchAdminError(
-            f"{method} {path} -> HTTP {status}: {body[:512]}"
-        )
+        raise BranchAdminError(f"{method} {path} -> HTTP {status}: {body[:512]}")
 
 
 __all__ = [

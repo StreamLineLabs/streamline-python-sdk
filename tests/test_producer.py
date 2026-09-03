@@ -1,5 +1,6 @@
 """Tests for Producer, ProducerRecord, and RecordMetadata."""
 
+import asyncio
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -222,9 +223,7 @@ class TestProducerSendRecord:
         producer._producer = MagicMock()  # fake started state
 
         with patch.object(producer, "send", new_callable=AsyncMock) as mock_send:
-            mock_send.return_value = RecordMetadata(
-                "t", 0, 0, datetime.now(), 0, 5
-            )
+            mock_send.return_value = RecordMetadata("t", 0, 0, datetime.now(), 0, 5)
             record = ProducerRecord(topic="t", value=b"hello", partition=-1)
             await producer.send_record(record)
             mock_send.assert_called_once_with(
@@ -243,9 +242,7 @@ class TestProducerSendRecord:
         producer._producer = MagicMock()
 
         with patch.object(producer, "send", new_callable=AsyncMock) as mock_send:
-            mock_send.return_value = RecordMetadata(
-                "t", 2, 0, datetime.now(), 0, 5
-            )
+            mock_send.return_value = RecordMetadata("t", 2, 0, datetime.now(), 0, 5)
             record = ProducerRecord(topic="t", value=b"hello", partition=2)
             await producer.send_record(record)
             mock_send.assert_called_once_with(
@@ -256,3 +253,181 @@ class TestProducerSendRecord:
                 timestamp_ms=None,
                 headers=None,
             )
+
+
+def _make_started_producer_with_fake_broker():
+    """Build a Producer wired to a fake underlying AIOKafkaProducer.
+
+    Every real send increments a counter and records the (topic, value)
+    pair so tests can assert exactly what reached the "broker", as opposed
+    to what was merely buffered client-side.
+    """
+    producer = Producer(ClientConfig(), ProducerConfig())
+    sent: list[tuple[str, bytes | None]] = []
+
+    async def fake_send(
+        topic, value=None, key=None, partition=None, timestamp_ms=None, headers=None
+    ):
+        sent.append((topic, value))
+        result = MagicMock(
+            topic=topic, partition=0, offset=len(sent) - 1, timestamp=1_700_000_000_000
+        )
+        future = asyncio.get_event_loop().create_future()
+        future.set_result(result)
+        return future
+
+    fake_broker = AsyncMock()
+    fake_broker.send = AsyncMock(side_effect=fake_send)
+    producer._producer = fake_broker
+    producer._started = True
+    return producer, sent
+
+
+class TestProducerTransactionBuffering:
+    """Regression tests for client-buffered (non-atomic) pseudo-transactions."""
+
+    @pytest.mark.asyncio
+    async def test_send_cannot_bypass_active_transaction(self):
+        """Calling send() directly (not just send_record()) must still
+        buffer while a transaction is active, rather than hitting the
+        broker immediately."""
+        producer, sent = _make_started_producer_with_fake_broker()
+
+        await producer.begin_transaction()
+        metadata = await producer.send("orders", value=b"first")
+
+        assert sent == []  # nothing reached the fake broker
+        assert metadata.partition == -1
+        assert metadata.offset == -1
+        assert producer.in_transaction is True
+        assert len(producer._transaction_buffer) == 1
+        assert producer._transaction_buffer[0].topic == "orders"
+        assert producer._transaction_buffer[0].value == b"first"
+
+    @pytest.mark.asyncio
+    async def test_send_record_and_send_share_one_buffer(self):
+        """send() and send_record() during the same transaction append to
+        the same buffer in call order."""
+        producer, sent = _make_started_producer_with_fake_broker()
+
+        await producer.begin_transaction()
+        await producer.send("orders", value=b"one")
+        await producer.send_record(ProducerRecord(topic="orders", value=b"two"))
+        await producer.send("orders", value=b"three")
+
+        assert sent == []
+        assert [r.value for r in producer._transaction_buffer] == [
+            b"one",
+            b"two",
+            b"three",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_commit_transaction_replays_buffered_sends_to_broker(self):
+        """commit_transaction() must actually transmit every buffered
+        record to the broker, in order, and exactly once each — this is a
+        regression test for a bug where committing re-appended each record
+        back onto the same buffer it was draining, instead of sending it."""
+        producer, sent = _make_started_producer_with_fake_broker()
+
+        await producer.begin_transaction()
+        await producer.send("orders", value=b"one")
+        await producer.send("orders", value=b"two")
+        await producer.send("orders", value=b"three")
+
+        results = await producer.commit_transaction()
+
+        assert sent == [
+            ("orders", b"one"),
+            ("orders", b"two"),
+            ("orders", b"three"),
+        ]
+        assert len(results) == 3
+        assert producer.in_transaction is False
+        assert producer._transaction_buffer == []
+
+    @pytest.mark.asyncio
+    async def test_commit_transaction_exits_buffering_before_sending(self):
+        """While commit_transaction() is replaying buffered records, the
+        producer must no longer be "in a transaction" — otherwise each
+        replayed send would just re-buffer instead of reaching the
+        broker."""
+        producer, sent = _make_started_producer_with_fake_broker()
+        observed_in_transaction_during_send = []
+
+        async def fake_send(
+            topic, value=None, key=None, partition=None, timestamp_ms=None, headers=None
+        ):
+            observed_in_transaction_during_send.append(producer.in_transaction)
+            sent.append((topic, value))
+            result = MagicMock(
+                topic=topic, partition=0, offset=0, timestamp=1_700_000_000_000
+            )
+            future = asyncio.get_event_loop().create_future()
+            future.set_result(result)
+            return future
+
+        producer._producer.send = AsyncMock(side_effect=fake_send)
+
+        await producer.begin_transaction()
+        await producer.send("orders", value=b"one")
+        await producer.commit_transaction()
+
+        assert observed_in_transaction_during_send == [False]
+        assert sent == [("orders", b"one")]
+
+    @pytest.mark.asyncio
+    async def test_send_after_commit_is_not_buffered(self):
+        """After commit, ordinary sends must reach the broker again
+        immediately (buffering mode must be fully exited)."""
+        producer, sent = _make_started_producer_with_fake_broker()
+
+        await producer.begin_transaction()
+        await producer.send("orders", value=b"buffered")
+        await producer.commit_transaction()
+
+        await producer.send("orders", value=b"post-commit")
+
+        assert sent == [("orders", b"buffered"), ("orders", b"post-commit")]
+
+    @pytest.mark.asyncio
+    async def test_abort_transaction_discards_buffer_without_sending(self):
+        producer, sent = _make_started_producer_with_fake_broker()
+
+        await producer.begin_transaction()
+        await producer.send("orders", value=b"discarded")
+        await producer.abort_transaction()
+
+        assert sent == []
+        assert producer.in_transaction is False
+        assert producer._transaction_buffer == []
+
+    @pytest.mark.asyncio
+    async def test_commit_transaction_with_empty_buffer_sends_nothing(self):
+        producer, sent = _make_started_producer_with_fake_broker()
+
+        await producer.begin_transaction()
+        results = await producer.commit_transaction()
+
+        assert results == []
+        assert sent == []
+        assert producer.in_transaction is False
+
+    @pytest.mark.asyncio
+    async def test_begin_transaction_twice_raises(self):
+        producer, _ = _make_started_producer_with_fake_broker()
+        await producer.begin_transaction()
+        with pytest.raises(RuntimeError, match="already in progress"):
+            await producer.begin_transaction()
+
+    @pytest.mark.asyncio
+    async def test_commit_without_begin_raises(self):
+        producer, _ = _make_started_producer_with_fake_broker()
+        with pytest.raises(RuntimeError, match="No transaction in progress"):
+            await producer.commit_transaction()
+
+    @pytest.mark.asyncio
+    async def test_abort_without_begin_raises(self):
+        producer, _ = _make_started_producer_with_fake_broker()
+        with pytest.raises(RuntimeError, match="No transaction in progress"):
+            await producer.abort_transaction()

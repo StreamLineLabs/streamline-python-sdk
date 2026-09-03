@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Any
 from aiokafka import AIOKafkaConsumer, TopicPartition
 from aiokafka.errors import KafkaError
 
+from ._security import build_security_kwargs
+from ._url import encode_path_segment
 from .circuit_breaker import CircuitBreakerOpen
 from .exceptions import (
     ConnectionError as _ConnectionError,
@@ -91,14 +93,7 @@ class Consumer:
         if self._started:
             return
 
-        security_kwargs = {}
-        if self._client_config.security_protocol != "PLAINTEXT":
-            security_kwargs["security_protocol"] = self._client_config.security_protocol
-
-        if self._client_config.sasl_mechanism:
-            security_kwargs["sasl_mechanism"] = self._client_config.sasl_mechanism
-            security_kwargs["sasl_plain_username"] = self._client_config.sasl_username
-            security_kwargs["sasl_plain_password"] = self._client_config.sasl_password
+        security_kwargs = build_security_kwargs(self._client_config)
 
         self._consumer = AIOKafkaConsumer(
             bootstrap_servers=self._client_config.bootstrap_servers,
@@ -188,9 +183,7 @@ class Consumer:
 
         await self._consumer.seek_to_beginning(*partitions)
 
-    async def seek_to_end(
-        self, partitions: list[TopicPartition] | None = None
-    ) -> None:
+    async def seek_to_end(self, partitions: list[TopicPartition] | None = None) -> None:
         """Seek to the end of partitions.
 
         Args:
@@ -394,13 +387,14 @@ class Consumer:
         """
         try:
             import aiohttp
+
             _has_aiohttp = True
         except ImportError:
             _has_aiohttp = False
 
         http_url = self._client_config.http_url
 
-        url = f"{http_url}/api/v1/topics/{topic}/search"
+        url = f"{http_url}/api/v1/topics/{encode_path_segment(topic)}/search"
         payload = {"query": query, "k": k}
 
         if _has_aiohttp:
@@ -429,9 +423,7 @@ class Consumer:
             def _sync_post():
                 with urllib.request.urlopen(req, timeout=10) as resp:
                     if resp.status != 200:
-                        raise ConsumerError(
-                            f"search failed: HTTP {resp.status}"
-                        )
+                        raise ConsumerError(f"search failed: HTTP {resp.status}")
                     return _json.loads(resp.read())
 
             data = await asyncio.to_thread(_sync_post)
@@ -442,11 +434,7 @@ class Consumer:
                 partition=int(h["partition"]),
                 offset=int(h["offset"]),
                 score=float(h["score"]),
-                value=(
-                    h.get("value", "").encode()
-                    if h.get("value")
-                    else None
-                ),
+                value=(h.get("value", "").encode() if h.get("value") else None),
             )
             for h in data.get("hits", [])
         ]
@@ -471,6 +459,7 @@ class Consumer:
 # revision of this SDK will switch to the wire-protocol path automatically.
 #
 # Stability tier: Experimental. The API may change before M2 GA.
+
 
 @dataclass
 class SearchHit:
@@ -532,7 +521,7 @@ async def search(
         ) from exc
 
     host = bootstrap_servers.split(",")[0].split(":")[0]
-    url = f"http://{host}:{admin_port}/topics/{topic}/search"
+    url = f"http://{host}:{admin_port}/topics/{encode_path_segment(topic)}/search"
     qs = "?include=value" if include_value else ""
 
     async with aiohttp.ClientSession() as session:

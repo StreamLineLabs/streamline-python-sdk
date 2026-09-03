@@ -9,42 +9,11 @@ from aiokafka.admin import AIOKafkaAdminClient, NewTopic
 from aiokafka.errors import KafkaError
 
 from ._admin_http import _AdminHttpTransport
+from ._security import build_security_kwargs
+from ._url import append_query, encode_path_segment
 from .exceptions import TopicError
+from .types import ConsumerGroupInfo, GroupMember, TopicConfig, TopicInfo
 from .validation import validate_topic_name
-
-
-@dataclass
-class TopicConfig:
-    """Configuration for creating a topic.
-
-    Attributes:
-        name: Topic name.
-        num_partitions: Number of partitions.
-        replication_factor: Number of replicas.
-        config: Topic configuration (e.g., retention.ms).
-    """
-
-    name: str
-    num_partitions: int = 1
-    replication_factor: int = 1
-    config: dict[str, str] = field(default_factory=dict)
-
-
-@dataclass
-class TopicInfo:
-    """Information about a topic.
-
-    Attributes:
-        name: Topic name.
-        partitions: Number of partitions.
-        replication_factor: Replication factor.
-        internal: Whether this is an internal topic.
-    """
-
-    name: str
-    partitions: int
-    replication_factor: int
-    internal: bool = False
 
 
 @dataclass
@@ -62,38 +31,6 @@ class PartitionInfo:
     leader: int
     replicas: list[int]
     isr: list[int]
-
-
-@dataclass
-class ConsumerGroupInfo:
-    """Information about a consumer group.
-
-    Attributes:
-        group_id: Consumer group ID.
-        state: Group state (e.g., Stable, Empty).
-        protocol: Group protocol.
-        members: List of group members.
-    """
-
-    group_id: str
-    state: str
-    protocol: str
-    members: list[GroupMember]
-
-
-@dataclass
-class GroupMember:
-    """Information about a consumer group member.
-
-    Attributes:
-        member_id: Member ID.
-        client_id: Client ID.
-        host: Member host.
-    """
-
-    member_id: str
-    client_id: str
-    host: str
 
 
 @dataclass
@@ -224,7 +161,9 @@ class Admin:
 
     Example:
         async with client.admin as admin:
-            await admin.create_topic(TopicConfig(name="my-topic", partitions=3))
+            await admin.create_topic(
+                TopicConfig(name="my-topic", num_partitions=3)
+            )
     """
 
     def __init__(self, client_config: Any):
@@ -243,14 +182,7 @@ class Admin:
         if self._started:
             return
 
-        security_kwargs = {}
-        if self._client_config.security_protocol != "PLAINTEXT":
-            security_kwargs["security_protocol"] = self._client_config.security_protocol
-
-        if self._client_config.sasl_mechanism:
-            security_kwargs["sasl_mechanism"] = self._client_config.sasl_mechanism
-            security_kwargs["sasl_plain_username"] = self._client_config.sasl_username
-            security_kwargs["sasl_plain_password"] = self._client_config.sasl_password
+        security_kwargs = build_security_kwargs(self._client_config)
 
         self._admin = AIOKafkaAdminClient(
             bootstrap_servers=self._client_config.bootstrap_servers,
@@ -387,7 +319,7 @@ class Admin:
             raise TopicError("Admin client not started")
 
         try:
-            data = await self._http.get(f"/v1/topics/{name}")
+            data = await self._http.get(f"/v1/topics/{encode_path_segment(name)}")
             return TopicInfo(
                 name=data.get("name", name),
                 partitions=data.get("partitions", 0),
@@ -487,7 +419,9 @@ class Admin:
         Returns:
             ConsumerGroupLag with per-partition lag.
         """
-        data = await self._http.get(f"/v1/consumer-groups/{group_id}/lag")
+        data = await self._http.get(
+            f"/v1/consumer-groups/{encode_path_segment(group_id)}/lag"
+        )
         partitions = [
             ConsumerLag(
                 topic=p.get("topic", ""),
@@ -516,7 +450,10 @@ class Admin:
         Returns:
             ConsumerGroupLag scoped to the given topic.
         """
-        data = await self._http.get(f"/v1/consumer-groups/{group_id}/lag/{topic}")
+        data = await self._http.get(
+            "/v1/consumer-groups/"
+            f"{encode_path_segment(group_id)}/lag/{encode_path_segment(topic)}"
+        )
         partitions = [
             ConsumerLag(
                 topic=p.get("topic", topic),
@@ -551,9 +488,13 @@ class Admin:
         Returns:
             List of inspected messages.
         """
-        path = f"/v1/inspect/{topic}?partition={partition}&limit={limit}"
+        params = {"partition": partition, "limit": limit}
         if offset is not None:
-            path += f"&offset={offset}"
+            params["offset"] = offset
+        path = append_query(
+            f"/v1/inspect/{encode_path_segment(topic)}",
+            params,
+        )
         data = await self._http.get(path)
         return [
             InspectedMessage(
@@ -579,7 +520,12 @@ class Admin:
         Returns:
             List of latest messages.
         """
-        data = await self._http.get(f"/v1/inspect/{topic}/latest?count={count}")
+        data = await self._http.get(
+            append_query(
+                f"/v1/inspect/{encode_path_segment(topic)}/latest",
+                {"count": count},
+            )
+        )
         return [
             InspectedMessage(
                 offset=m.get("offset", 0),
@@ -644,7 +590,7 @@ class Admin:
         """
         path = "/v1/branches"
         if topic:
-            path += f"?topic={topic}"
+            path = append_query(path, {"topic": topic})
         data = await self._http.get(path)
         items = data if isinstance(data, list) else data.get("items", [])
         return [
@@ -663,7 +609,7 @@ class Admin:
         Args:
             branch_id: Branch identifier.
         """
-        await self._http.delete(f"/v1/branches/{branch_id}")
+        await self._http.delete(f"/v1/branches/{encode_path_segment(branch_id)}")
 
     async def __aenter__(self) -> Admin:
         """Enter async context manager."""

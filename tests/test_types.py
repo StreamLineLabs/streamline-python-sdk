@@ -2,6 +2,8 @@
 
 from datetime import datetime
 
+import pytest
+
 from streamline_sdk.types import (
     Message,
     OffsetInfo,
@@ -11,6 +13,10 @@ from streamline_sdk.types import (
     Record,
     TopicConfig,
     TopicInfo,
+)
+
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:Topic(Config|Info).*deprecated:DeprecationWarning"
 )
 
 
@@ -196,8 +202,12 @@ class TestTypesPartitionInfo:
     def test_custom_log_start_offset(self):
         """Test PartitionInfo with custom log_start_offset."""
         info = PartitionInfo(
-            id=0, leader=1, replicas=[1], isr=[1],
-            high_watermark=500, log_start_offset=100,
+            id=0,
+            leader=1,
+            replicas=[1],
+            isr=[1],
+            high_watermark=500,
+            log_start_offset=100,
         )
         assert info.log_start_offset == 100
 

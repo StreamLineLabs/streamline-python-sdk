@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- TLS/mTLS now builds and forwards a real `SSLContext` consistently to the
+  producer, consumer, and admin clients. Invalid SASL/TLS combinations fail
+  early with `ConfigurationError`.- README and runnable examples now use the actual async producer, consumer,
+  admin, query, schema, AI, security, and memory APIs.
+- Dynamic topic, group, branch, search, and schema-registry path segments are
+  percent-encoded before HTTP requests.
+- Duplicate `TopicConfig`, `TopicInfo`, and `ConsumerGroupInfo` definitions are
+  canonicalized in `streamline_sdk.types`; `streamline_sdk.admin` preserves
+  import compatibility by re-exporting the same classes.
 - Python 3.9 support: every runtime module now carries
   `from __future__ import annotations`, so PEP 604 (`str | None`) and PEP 585
   (`list[str]`) annotations are no longer evaluated at import time. Previously
@@ -29,6 +38,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   transactional records, matching `RecordMetadata.timestamp`.
 - `examples/agent_memory/memory_demo.py` uses the real `MemoryClient` API
   instead of non-existent `StreamlineClient.memory_*` helpers.
+- `Producer.send()` no longer bypasses an active client-buffered transaction:
+  previously only `send_record()` checked for an in-progress transaction, so
+  calling `send()` directly during a transaction sent straight to the broker
+  instead of being buffered. `commit_transaction()` now snapshots and clears
+  the transaction buffer and exits buffering mode *before* replaying the
+  buffered sends, fixing a bug where committing re-appended each buffered
+  record back onto the very list it was draining, instead of transmitting
+  it. Transactions are now explicitly documented as **client-buffered and
+  non-atomic**: there is no broker-side transactional coordinator, so a
+  partial failure during commit can leave some messages delivered and
+  others not.
+- `TopicConfig` and `ConsumerGroupInfo` dispatch legacy positional
+  constructor calls (the pre-canonicalization field orders) to the correct
+  fields again. The canonicalization work had silently changed what a
+  positional call like `ConsumerGroupInfo(group_id, state, protocol_type,
+  protocol, members)` meant (the 3rd/4th/5th positional arguments landed in
+  the wrong fields); both classes now detect the legacy shape (by argument
+  type for `TopicConfig`, by argument count for `ConsumerGroupInfo`) and
+  route it correctly, emitting a `DeprecationWarning`.
+- Dynamic URL path segments (topic/group/branch/schema-subject identifiers)
+  now reject the exact literal values `.` and `..` with `ConfigurationError`
+  before a request is ever built. `yarl` (which `aiohttp` is built on)
+  normalizes these exact segments out of the final URL — even when
+  percent-encoded — silently redirecting the request to a different
+  endpoint than the caller specified; every other dot-containing segment
+  (e.g. `a..b`, `..hidden`) is unaffected and continues to work.
 
 ### Added
 - `search` extra (`pip install streamline-sdk[search]`) providing `aiohttp`,
@@ -48,12 +83,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Moonshot HTTP modules under `streamline_sdk`:
-  - `branches_admin.BranchesClient` (M5)
+  - `branches_admin.BranchAdminClient` (M5)
   - `contracts.ContractsClient` (M4)
-  - `attestation.AttestationClient` (M4)
+  - `attestation.Attestor` (M4)
   - `search.SearchClient` (M2)
   - `memory.MemoryClient` (M1)
-- Each client is sync-friendly and uses `httpx` under the hood.
+- Each client is async and uses `aiohttp` with a standard-library fallback
+  where supported.
 
 ### Added
 - Admin: `cluster_info()` — cluster overview including broker list

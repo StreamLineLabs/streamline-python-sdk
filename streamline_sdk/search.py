@@ -23,6 +23,7 @@ try:
 except ImportError:  # pragma: no cover - import guard
     _HAS_AIOHTTP = False
 
+from ._url import encode_path_segment
 from .exceptions import StreamlineError
 
 
@@ -89,7 +90,10 @@ class SearchClient:
         body: dict[str, Any] = {"query": query, "k": k}
         if filter is not None:
             body["filter"] = filter
-        data = await self._post(f"/api/v1/topics/{topic}/search", body)
+        data = await self._post(
+            f"/api/v1/topics/{encode_path_segment(topic)}/search",
+            body,
+        )
         return SearchResult.from_json(data)
 
     # ------------------------------------------------------------------

@@ -11,8 +11,10 @@ Example usage:
             await client.producer.send("my-topic", value=b"Hello, World!")
 
             # Consume messages
-            async for message in client.consumer.subscribe("my-topic"):
-                print(f"Received: {message.value}")
+            async with client.consumer(group_id="example") as consumer:
+                await consumer.subscribe(["my-topic"])
+                async for message in consumer:
+                    print(f"Received: {message.value}")
 
     asyncio.run(main())
 """
