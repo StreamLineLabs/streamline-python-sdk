@@ -18,7 +18,7 @@ from streamline_sdk import StreamlineClient
 from streamline_sdk.ai import AIClient
 
 
-async def main():
+async def main() -> None:
     """Demonstrate AI module usage."""
     bootstrap = os.environ.get("STREAMLINE_BOOTSTRAP_SERVERS", "localhost:9092")
     http_url = os.environ.get("STREAMLINE_HTTP", "http://localhost:9094")
@@ -43,14 +43,15 @@ async def main():
             "Real-time data processing at the edge",
         ]
         result = await ai.embed(texts)
-        print(f"Generated {len(result.embeddings)} embeddings")
-        print(f"Dimensions: {len(result.embeddings[0])}")
+        print(f"Generated {len(result.vectors)} embeddings")
+        if result.vectors:
+            print(f"Dimensions: {len(result.vectors[0])}")
 
         # --- Semantic Search ---
         print("\n=== Semantic Search ===")
         results = await ai.search("streaming performance", topic="docs", top_k=5)
         for r in results:
-            print(f"  Score: {r.score:.3f} — {r.text[:80]}...")
+            print(f"  Score: {r.score:.3f} — {str(r.value)[:80]}...")
 
         # --- Anomaly Detection ---
         print("\n=== Anomaly Detection ===")
@@ -65,7 +66,7 @@ async def main():
             query="How does Streamline handle backpressure?",
             context_topic="documentation",
         )
-        print(f"Answer: {answer.text}")
+        print(f"Answer: {answer.answer}")
         print(f"Sources: {len(answer.sources)} documents referenced")
 
     print("\nDone!")

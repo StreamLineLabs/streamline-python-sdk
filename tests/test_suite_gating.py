@@ -15,7 +15,9 @@ import pytest
 from conftest import (
     CONFORMANCE_ENV_VAR,
     INTEGRATION_ENV_VAR,
+    REQUIRE_CONFORMANCE_ENV_VAR,
     conformance_enabled,
+    conformance_required,
     integration_enabled,
 )
 
@@ -83,3 +85,22 @@ def test_gate_is_disabled_unless_env_var_is_truthy(
     for truthy in ("1", "true", "TRUE", "yes", "on"):
         monkeypatch.setenv(env_var, truthy)
         assert gate() is True
+
+
+def test_required_conformance_gate_is_explicit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(REQUIRE_CONFORMANCE_ENV_VAR, raising=False)
+    assert conformance_required() is False
+
+    monkeypatch.setenv(REQUIRE_CONFORMANCE_ENV_VAR, "1")
+    assert conformance_required() is True
+
+
+def test_ci_conformance_job_cannot_use_default_skip_gate() -> None:
+    workflow = (
+        TESTS_ROOT.parent / ".github" / "workflows" / "integration.yml"
+    ).read_text(encoding="utf-8")
+    assert "conformance:" in workflow
+    assert "CONFORMANCE: '1'" in workflow
+    assert "STREAMLINE_REQUIRE_CONFORMANCE: '1'" in workflow

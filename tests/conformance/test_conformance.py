@@ -30,6 +30,47 @@ def unique_topic(test_id: str) -> str:
     return f"conformance-{test_id}-{int(time.time() * 1_000_000)}"
 
 
+def require_env(*names: str) -> list[str]:
+    """Return required fixture values or explicitly skip with missing names."""
+    missing = [name for name in names if not os.environ.get(name)]
+    if missing:
+        pytest.skip(
+            "external security fixture unavailable; missing "
+            + ", ".join(sorted(missing))
+        )
+    return [os.environ[name] for name in names]
+
+
+def require_sasl_fixture(
+    mechanism: str,
+) -> tuple[str, str, str, str, str | None]:
+    """Return an explicitly declared SASL fixture for one mechanism."""
+    bootstrap, username, password, mechanisms_value = require_env(
+        "STREAMLINE_SASL_BOOTSTRAP",
+        "STREAMLINE_SASL_USERNAME",
+        "STREAMLINE_SASL_PASSWORD",
+        "STREAMLINE_SASL_MECHANISMS",
+    )
+    mechanisms = {
+        value.strip().upper() for value in mechanisms_value.split(",") if value.strip()
+    }
+    if mechanism.upper() not in mechanisms:
+        pytest.skip(
+            f"external SASL fixture does not declare {mechanism}; "
+            f"available mechanisms: {sorted(mechanisms)}"
+        )
+
+    protocol = os.environ.get(
+        "STREAMLINE_SASL_SECURITY_PROTOCOL",
+        "SASL_PLAINTEXT",
+    ).upper()
+    ca_file = None
+    if protocol == "SASL_SSL":
+        ca_file = require_env("STREAMLINE_TLS_CA_FILE")[0]
+
+    return bootstrap, username, password, protocol, ca_file
+
+
 # ========== PRODUCER (8 tests) ==========
 
 
@@ -80,8 +121,7 @@ class TestProducer:
         topic = unique_topic("p04")
         await self.admin.create_topic(TopicConfig(name=topic, num_partitions=1))
         records = [
-            ProducerRecord(topic=topic, value=f"msg-{i}".encode())
-            for i in range(10)
+            ProducerRecord(topic=topic, value=f"msg-{i}".encode()) for i in range(10)
         ]
         results = await self.producer.send_batch(records)
         assert len(results) == 10
@@ -179,6 +219,7 @@ class TestConsumer:
         await consumer.start()
         await consumer.subscribe([topic])
         from streamline_sdk.consumer import TopicPartition
+
         await consumer.seek(TopicPartition(topic, 0), 5)
         records = await consumer.poll(timeout_ms=5000, max_records=10)
         assert len(records) >= 5
@@ -245,7 +286,8 @@ class TestConsumer:
         topic = unique_topic("c07")
         await self.admin.create_topic(TopicConfig(name=topic, num_partitions=1))
         await self.producer.send(
-            topic, value=b"with-headers",
+            topic,
+            value=b"with-headers",
             headers={b"x-trace": b"t1"},
         )
         await self.producer.flush()
@@ -320,8 +362,14 @@ class TestConsumerGroups:
         await c2.poll(timeout_ms=3000)
 
         info = await self.admin.describe_consumer_group(group)
-        assert info.state in ("Stable", "CompletingRebalance", "PreparingRebalance",
-                              "stable", "completing_rebalance", "preparing_rebalance")
+        assert info.state in (
+            "Stable",
+            "CompletingRebalance",
+            "PreparingRebalance",
+            "stable",
+            "completing_rebalance",
+            "preparing_rebalance",
+        )
         await c1.close()
         await c2.close()
 
@@ -400,8 +448,15 @@ class TestAuthentication:
     @pytest.mark.asyncio
     async def test_a01_tls_connect(self):
         """Connect to a TLS-enabled server."""
-        tls_bootstrap = os.environ.get("STREAMLINE_TLS_BOOTSTRAP", "localhost:9093")
-        client = StreamlineClient(bootstrap_servers=tls_bootstrap)
+        tls_bootstrap, ca_file = require_env(
+            "STREAMLINE_TLS_BOOTSTRAP",
+            "STREAMLINE_TLS_CA_FILE",
+        )
+        client = StreamlineClient(
+            bootstrap_servers=tls_bootstrap,
+            security_protocol="SSL",
+            ssl_cafile=ca_file,
+        )
         try:
             await client.start()
             assert client.is_connected
@@ -411,8 +466,19 @@ class TestAuthentication:
     @pytest.mark.asyncio
     async def test_a02_mutual_tls(self):
         """Connect with mutual TLS (client certificate)."""
-        tls_bootstrap = os.environ.get("STREAMLINE_TLS_BOOTSTRAP", "localhost:9093")
-        client = StreamlineClient(bootstrap_servers=tls_bootstrap)
+        tls_bootstrap, ca_file, cert_file, key_file = require_env(
+            "STREAMLINE_TLS_BOOTSTRAP",
+            "STREAMLINE_TLS_CA_FILE",
+            "STREAMLINE_TLS_CERT_FILE",
+            "STREAMLINE_TLS_KEY_FILE",
+        )
+        client = StreamlineClient(
+            bootstrap_servers=tls_bootstrap,
+            security_protocol="SSL",
+            ssl_cafile=ca_file,
+            ssl_certfile=cert_file,
+            ssl_keyfile=key_file,
+        )
         try:
             await client.start()
             assert client.is_connected
@@ -422,11 +488,14 @@ class TestAuthentication:
     @pytest.mark.asyncio
     async def test_a03_sasl_plain(self):
         """Authenticate with SASL/PLAIN."""
+        bootstrap, username, password, protocol, ca_file = require_sasl_fixture("PLAIN")
         client = StreamlineClient(
-            bootstrap_servers=BOOTSTRAP,
+            bootstrap_servers=bootstrap,
+            security_protocol=protocol,
             sasl_mechanism="PLAIN",
-            sasl_plain_username=os.environ.get("SASL_USERNAME", "admin"),
-            sasl_plain_password=os.environ.get("SASL_PASSWORD", "admin-secret"),
+            sasl_username=username,
+            sasl_password=password,
+            ssl_cafile=ca_file,
         )
         try:
             await client.start()
@@ -437,11 +506,16 @@ class TestAuthentication:
     @pytest.mark.asyncio
     async def test_a04_scram_sha256(self):
         """Authenticate with SASL/SCRAM-SHA-256."""
+        bootstrap, username, password, protocol, ca_file = require_sasl_fixture(
+            "SCRAM-SHA-256"
+        )
         client = StreamlineClient(
-            bootstrap_servers=BOOTSTRAP,
+            bootstrap_servers=bootstrap,
+            security_protocol=protocol,
             sasl_mechanism="SCRAM-SHA-256",
-            sasl_plain_username=os.environ.get("SASL_USERNAME", "admin"),
-            sasl_plain_password=os.environ.get("SASL_PASSWORD", "admin-secret"),
+            sasl_username=username,
+            sasl_password=password,
+            ssl_cafile=ca_file,
         )
         try:
             await client.start()
@@ -452,11 +526,16 @@ class TestAuthentication:
     @pytest.mark.asyncio
     async def test_a05_scram_sha512(self):
         """Authenticate with SASL/SCRAM-SHA-512."""
+        bootstrap, username, password, protocol, ca_file = require_sasl_fixture(
+            "SCRAM-SHA-512"
+        )
         client = StreamlineClient(
-            bootstrap_servers=BOOTSTRAP,
+            bootstrap_servers=bootstrap,
+            security_protocol=protocol,
             sasl_mechanism="SCRAM-SHA-512",
-            sasl_plain_username=os.environ.get("SASL_USERNAME", "admin"),
-            sasl_plain_password=os.environ.get("SASL_PASSWORD", "admin-secret"),
+            sasl_username=username,
+            sasl_password=password,
+            ssl_cafile=ca_file,
         )
         try:
             await client.start()
@@ -467,15 +546,16 @@ class TestAuthentication:
     @pytest.mark.asyncio
     async def test_a06_auth_failure(self):
         """Invalid credentials should raise AuthenticationError."""
+        bootstrap, _, _, protocol, ca_file = require_sasl_fixture("PLAIN")
         client = StreamlineClient(
-            bootstrap_servers=BOOTSTRAP,
+            bootstrap_servers=bootstrap,
+            security_protocol=protocol,
             sasl_mechanism="PLAIN",
-            sasl_plain_username="wrong-user",
-            sasl_plain_password="wrong-pass",
+            sasl_username="wrong-user",
+            sasl_password="wrong-pass",
+            ssl_cafile=ca_file,
         )
-        with pytest.raises(
-            (exceptions.AuthenticationError, exceptions.ConnectionError, Exception)
-        ):
+        with pytest.raises(exceptions.ConnectionError):
             await client.start()
         await client.close()
 
@@ -631,15 +711,16 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_e02_auth_denied(self):
         """Invalid credentials raise AuthenticationError."""
+        bootstrap, _, _, protocol, ca_file = require_sasl_fixture("PLAIN")
         client = StreamlineClient(
-            bootstrap_servers=BOOTSTRAP,
+            bootstrap_servers=bootstrap,
+            security_protocol=protocol,
             sasl_mechanism="PLAIN",
-            sasl_plain_username="invalid",
-            sasl_plain_password="invalid",
+            sasl_username="invalid",
+            sasl_password="invalid",
+            ssl_cafile=ca_file,
         )
-        with pytest.raises(
-            (exceptions.AuthenticationError, exceptions.ConnectionError, Exception)
-        ):
+        with pytest.raises(exceptions.ConnectionError):
             await client.start()
         await client.close()
 
@@ -722,14 +803,13 @@ class TestPerformance:
     async def test_f04_memory_usage(self):
         """Producing 10K messages should not cause excessive memory growth."""
         import sys
+
         topic = unique_topic("f04")
         await self.admin.create_topic(TopicConfig(name=topic, num_partitions=1))
         records = [
-            ProducerRecord(topic=topic, value=f"mem-{i}".encode())
-            for i in range(100)
+            ProducerRecord(topic=topic, value=f"mem-{i}".encode()) for i in range(100)
         ]
         results = await self.producer.send_batch(records)
         assert len(results) == 100
         # Basic sanity: Python process shouldn't exceed 500MB for this test
         assert sys.getsizeof(results) < 500 * 1024 * 1024
-

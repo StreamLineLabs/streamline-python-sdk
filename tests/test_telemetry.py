@@ -25,9 +25,7 @@ class TestStreamlineTracingInit:
         tracing = StreamlineTracing()
 
         assert tracing.is_enabled is True
-        mock_trace.get_tracer.assert_called_once_with(
-            "streamline-python-sdk", "0.2.0"
-        )
+        mock_trace.get_tracer.assert_called_once_with("streamline-python-sdk", "0.2.0")
 
     @patch("streamline_sdk.telemetry._OTEL_AVAILABLE", True)
     @patch("streamline_sdk.telemetry.trace")
@@ -164,9 +162,7 @@ class TestTraceProduceEnabled:
             async with tracing.trace_produce("orders"):
                 raise ValueError("test error")
 
-        mock_span.set_status.assert_called_once_with(
-            mock_status.ERROR, "test error"
-        )
+        mock_span.set_status.assert_called_once_with(mock_status.ERROR, "test error")
         mock_span.record_exception.assert_called_once()
         mock_span.end.assert_called_once()
         mock_otel_context.detach.assert_called_once_with("token")
@@ -265,17 +261,16 @@ class TestContextInjection:
         mock_span = MagicMock()
         headers: dict[str, bytes] = {}
 
-        with patch("streamline_sdk.telemetry.trace") as mock_trace, \
-             patch("opentelemetry.propagate.inject") as mock_inject:
+        with patch("streamline_sdk.telemetry.trace") as mock_trace:
+            with patch("opentelemetry.propagate.inject") as mock_inject:
+                # Simulate inject() populating the carrier
+                def side_effect(carrier, context=None):
+                    carrier["traceparent"] = "00-abc-def-01"
 
-            # Simulate inject() populating the carrier
-            def side_effect(carrier, context=None):
-                carrier["traceparent"] = "00-abc-def-01"
+                mock_inject.side_effect = side_effect
+                mock_trace.set_span_in_context.return_value = MagicMock()
 
-            mock_inject.side_effect = side_effect
-            mock_trace.set_span_in_context.return_value = MagicMock()
-
-            _inject_context(mock_span, headers)
+                _inject_context(mock_span, headers)
 
         assert headers["traceparent"] == b"00-abc-def-01"
 

@@ -6,7 +6,7 @@ import os
 from streamline_sdk import StreamlineClient, TopicConfig
 
 
-async def main():
+async def main() -> None:
     """Demonstrate basic SDK usage."""
     print("Connecting to Streamline...")
 
@@ -70,8 +70,8 @@ async def main():
                     f"    Topic: {msg.topic}, "
                     f"Partition: {msg.partition}, "
                     f"Offset: {msg.offset}, "
-                    f"Key: {msg.key}, "
-                    f"Value: {msg.value}"
+                    f"Key: {msg.key!r}, "
+                    f"Value: {msg.value!r}"
                 )
                 if msg.headers:
                     print(f"    Headers: {msg.headers}")

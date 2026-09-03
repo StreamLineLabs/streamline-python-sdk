@@ -373,6 +373,7 @@ class StreamlineTracing:
 
 # ── Internal helpers ──────────────────────────────────────────────────
 
+
 def _inject_context(span: Any, headers: dict[str, bytes]) -> None:
     """Inject W3C traceparent into message headers."""
     if not _OTEL_AVAILABLE:

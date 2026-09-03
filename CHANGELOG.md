@@ -75,10 +75,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ghcr.io/streamlinelabs/streamline:0.3.0`, has never been published, so a
   bare `StreamlineContainer()` could only ever fail to pull an image that
   does not exist.
+- The release workflow's CycloneDX SBOM is now generated from a clean,
+  wheel-only virtual environment. Previously `cyclonedx-py environment` was
+  invoked in the same environment used to build/check the distribution,
+  which has `build`/`twine`/`cyclonedx-bom` installed (and dozens of their
+  transitive dependencies) but never the package's own runtime dependencies
+  (`python -m build` builds in an isolated PEP 517 backend, not the calling
+  environment) — so the generated SBOM listed build tooling as
+  "components" while omitting `aiokafka`/`cryptography`, the SDK's actual
+  runtime dependencies, entirely.
 
 ### Added
+- Python 3.9-3.14 CI matrix, executable/typechecked README snippet tests, and a
+  required conformance job that fails when no conformance test executes.
 - Non-publishing build/package validation for the nested Testcontainers Python
   distribution and embedded Rust extension scaffold.
+- Trusted PyPI publishing via OIDC, mandatory CycloneDX SBOM generation, and
+  GitHub build-provenance/SBOM attestations.
+- Dependabot coverage for nested Python and Rust manifests.
 - `search` extra (`pip install streamline-sdk[search]`) providing `aiohttp`,
   matching the hint already raised by `Consumer.search()`.
 - `BrokerInfo`, `ClusterInfo`, `ConsumerLag`, `ConsumerGroupLag`,
@@ -86,6 +100,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (they were already importable from the package).
 - Regression tests for the packaging/import contract and for the test-suite
   gating (`tests/test_packaging_contract.py`, `tests/test_suite_gating.py`).
+- A required, digest-pinned live-conformance job in the release workflow:
+  it hard-blocks (rather than silently skipping) unless an explicit image
+  is configured via the `STREAMLINE_CONFORMANCE_IMAGE` repository
+  variable. The regular integration/conformance workflow uses the same
+  immutable-image requirement and no longer defaults to the nonexistent
+  `streamline:0.3.0` tag.
+  variable, rejects mutable tags, and reuses the existing executed-test-
+  count guard so a run that executes zero conformance tests still fails.
+  `publish` now depends on both this job and `attest` succeeding, and the
+  whole release workflow is guarded by a `concurrency` group so two
+  releases can never run in parallel.
+- Regression tests: yarl/aiohttp final-URL round-trip tests for dynamic
+  path encoding (`tests/test_url_encoding.py`); legacy-positional-
+  constructor dispatch tests (`tests/test_model_compatibility.py`); a
+  dedicated transaction-buffering regression suite
+  (`tests/test_producer.py`); release/testcontainers/embedded requirement
+  coverage (`tests/test_release_configuration.py`); and digest-pinning
+  regression tests for `StreamlineContainer`
+  (`testcontainers/tests/test_container.py`), whose Docker-requiring tests
+  are now gated behind an explicit `STREAMLINE_TESTCONTAINERS_IMAGE`
+  fixture instead of assuming a working default image.
 
 ### Changed
 - The embedded extension uses PyO3 0.29 so its validation build supports
