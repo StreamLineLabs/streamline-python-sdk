@@ -2,16 +2,20 @@
 name = "streamline-python-embedded"
 version = "0.3.0"
 edition = "2021"
-description = "Python bindings for Embedded Streamline (no Docker required)"
+description = "Experimental Python binding scaffold for Embedded Streamline"
 license = "Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/streamlinelabs/streamline-python-sdk"
+homepage = "https://github.com/streamlinelabs/streamline-python-sdk/tree/main/streamline_embedded"
+documentation = "https://github.com/streamlinelabs/streamline-python-sdk/tree/main/streamline_embedded"
+publish = false
 
 [lib]
 name = "streamline_embedded"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.22", features = ["extension-module"] }
-serde_json = "1"
+pyo3 = { version = "0.29", features = ["extension-module"] }
 
 # Link against the Streamline C FFI library
 # Build with: maturin develop (or maturin build --release)

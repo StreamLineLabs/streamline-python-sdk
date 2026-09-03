@@ -64,8 +64,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   percent-encoded — silently redirecting the request to a different
   endpoint than the caller specified; every other dot-containing segment
   (e.g. `a..b`, `..hidden`) is unaffected and continues to work.
+- The embedded Rust extension's placeholder storage methods
+  (`create_topic`, `delete_topic`, `produce`, `consume`, `list_topics`,
+  `latest_offset`, `flush`) now raise `NotImplementedError` instead of
+  silently returning fabricated success values (e.g. offset `0`, an empty
+  topic list) while the Streamline C FFI remains unlinked.
+- `StreamlineContainer` (Testcontainers) no longer has a default image and
+  now requires an explicit reference pinned by digest
+  (`registry/repo@sha256:...`); the previous default,
+  `ghcr.io/streamlinelabs/streamline:0.3.0`, has never been published, so a
+  bare `StreamlineContainer()` could only ever fail to pull an image that
+  does not exist.
 
 ### Added
+- Non-publishing build/package validation for the nested Testcontainers Python
+  distribution and embedded Rust extension scaffold.
 - `search` extra (`pip install streamline-sdk[search]`) providing `aiohttp`,
   matching the hint already raised by `Consumer.search()`.
 - `BrokerInfo`, `ClusterInfo`, `ConsumerLag`, `ConsumerGroupLag`,
@@ -75,8 +88,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gating (`tests/test_packaging_contract.py`, `tests/test_suite_gating.py`).
 
 ### Changed
+- The embedded extension uses PyO3 0.29 so its validation build supports
+  Python 3.14; Cargo publication is disabled while it remains a scaffold.
 - `mypy` is pinned to `<2.0` in the `dev` extra: mypy 2.x rejects
   `python_version = "3.9"`, which this package still targets.
+- `testcontainers/README.md` and `streamline_embedded/README.md` no longer
+  advertise a registry install (`pip install testcontainers-streamline` /
+  `pip install streamline-embedded`); both packages are explicitly
+  documented as source-only and unpublished, since CI only builds and
+  validates them (`python -m build` / `cargo package` / `maturin build` +
+  `twine check`) and never runs `twine upload` or `cargo publish`.
 
 
 ## [0.3.0] - 2026-04-20

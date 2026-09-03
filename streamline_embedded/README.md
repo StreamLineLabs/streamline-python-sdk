@@ -1,26 +1,41 @@
 # Streamline Embedded (Python)
 
-Run Streamline **in-process** — no Docker, no external processes. Perfect for testing.
+> **Experimental scaffold, source-only, unpublished:** this crate validates
+> the planned Python extension surface, but its storage operations are
+> placeholders until the Streamline C FFI is linked — every storage method
+> (`create_topic`, `delete_topic`, `produce`, `consume`, `list_topics`,
+> `latest_offset`, `flush`) raises `NotImplementedError` rather than
+> pretending to succeed. Do not use it as an in-process broker yet. It is
+> not published to any registry (crates.io publication is disabled via
+> `publish = false`, and there is no PyPI upload step in CI); build it from
+> source.
 
 ## Install
 
+There is no `streamline-embedded` package on PyPI or `streamline-python-embedded`
+crate on crates.io. Build the extension from a source checkout instead:
+
 ```bash
-pip install streamline-embedded
-# Or build from source:
-pip install maturin && maturin develop
+pip install maturin
+cd streamline_embedded
+maturin develop --release
 ```
 
-## Usage
+## Planned Usage
+
+Once the Streamline C FFI is linked, the API is intended to look like this.
+**Today, every storage call below raises `NotImplementedError`** — the
+example illustrates the target shape, not current behavior:
 
 ```python
 from streamline_embedded import EmbeddedStreamline
 
 # Context manager for automatic cleanup
 with EmbeddedStreamline.in_memory() as sl:
-    sl.create_topic("events", partitions=3)
-    
+    sl.create_topic("events", partitions=3)  # raises NotImplementedError today
+
     offset = sl.produce("events", partition=0, key=b"user-1", value=b'{"action":"click"}')
-    
+
     records = sl.consume("events", partition=0, offset=0, max_records=10)
     for r in records:
         print(f"offset={r.offset} value={r.value}")
@@ -28,12 +43,12 @@ with EmbeddedStreamline.in_memory() as sl:
 
 ## vs Testcontainers
 
-| | Embedded | Testcontainers |
+| | Embedded scaffold | Testcontainers |
 |---|---|---|
-| Startup time | **~1ms** | ~1s |
-| Docker required | **No** | Yes |
-| Persistence | Optional | Volume mount |
-| Resource usage | **~5MB** | ~50MB |
+| Executes Streamline operations | No (raises `NotImplementedError`) | Yes |
+| Docker required | No | Yes |
+| Suitable for integration tests | No | Yes |
+| Published to a registry | No (source-only) | No (source-only) |
 
 ## Building from Source
 
@@ -44,3 +59,8 @@ pip install maturin
 cd streamline_embedded
 maturin develop --release
 ```
+
+Release validation uses `cargo test`, `cargo package --no-verify` (package
+contents), and `maturin build --release` (authoritative extension linking);
+none of these commands publishes the crate or wheel. Cargo publication is
+disabled while the implementation remains a scaffold.
