@@ -286,7 +286,7 @@ metrics = await client.admin.metrics_history()
 ## Requirements
 
 - Python 3.9 through 3.14
-- Streamline server 0.2.0 or later
+- Streamline server 0.4.0 or later
 
 ## Error Handling
 

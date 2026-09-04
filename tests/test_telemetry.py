@@ -25,7 +25,7 @@ class TestStreamlineTracingInit:
         tracing = StreamlineTracing()
 
         assert tracing.is_enabled is True
-        mock_trace.get_tracer.assert_called_once_with("streamline-python-sdk", "0.2.0")
+        mock_trace.get_tracer.assert_called_once_with("streamline-python-sdk", "0.4.0")
 
     @patch("streamline_sdk.telemetry._OTEL_AVAILABLE", True)
     @patch("streamline_sdk.telemetry.trace")

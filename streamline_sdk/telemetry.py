@@ -70,14 +70,14 @@ class StreamlineTracing:
     Args:
         tracer_name: Name of the instrumentation scope
             (default: "streamline-python-sdk").
-        tracer_version: Version of the instrumentation scope (default: "0.2.0").
+        tracer_version: Version of the instrumentation scope (default: "0.4.0").
         enabled: Explicitly enable/disable tracing. ``None`` means auto-detect.
     """
 
     def __init__(
         self,
         tracer_name: str = "streamline-python-sdk",
-        tracer_version: str = "0.2.0",
+        tracer_version: str = "0.4.0",
         enabled: bool | None = None,
     ) -> None:
         self._enabled = enabled if enabled is not None else _OTEL_AVAILABLE

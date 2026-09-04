@@ -90,6 +90,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   required conformance job that fails when no conformance test executes.
 - Non-publishing build/package validation for the nested Testcontainers Python
   distribution and embedded Rust extension scaffold.
+- A dedicated maturin `pyproject.toml` for the embedded extension so wheel
+  metadata and names no longer inherit the root `streamline-sdk` package.
 - Trusted PyPI publishing via OIDC, mandatory CycloneDX SBOM generation, and
   GitHub build-provenance/SBOM attestations.
 - Dependabot coverage for nested Python and Rust manifests.
@@ -123,6 +125,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fixture instead of assuming a working default image.
 
 ### Changed
+- Security policy, package links, Testcontainers docs, and release-readiness
+  audit now describe the current 0.4.x release and fixture limitations.
 - The embedded extension uses PyO3 0.29 so its validation build supports
   Python 3.14; Cargo publication is disabled while it remains a scaffold.
 - `mypy` is pinned to `<2.0` in the `dev` extra: mypy 2.x rejects
