@@ -1,9 +1,11 @@
 """StreamQL query client for executing SQL queries on streaming data."""
 
-from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Optional
+from __future__ import annotations
+
 import asyncio
 import json
+from dataclasses import dataclass
+from typing import Any
 
 try:
     import aiohttp
@@ -95,7 +97,7 @@ class QueryClient:
                     json=payload,
                 ) as resp:
                     data = await resp.json()
-                    return data.get("plan", "")
+                    return str(data.get("plan", ""))
         else:
             import urllib.request
             req = urllib.request.Request(
@@ -107,5 +109,5 @@ class QueryClient:
                 with urllib.request.urlopen(req, timeout=30) as resp:
                     return json.loads(resp.read())
             data = await asyncio.to_thread(_sync_explain)
-            return data.get("plan", "")
+            return str(data.get("plan", ""))
 

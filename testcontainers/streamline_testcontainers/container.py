@@ -2,10 +2,44 @@
 Streamline container implementation for Testcontainers.
 """
 
-from typing import Optional
+from __future__ import annotations
+
+import shlex
 
 from testcontainers.core.container import DockerContainer
 from testcontainers.core.waiting_utils import wait_for_logs
+
+
+def _require_digest_pinned_image(image: str) -> None:
+    """Reject any image reference that is not pinned by content digest.
+
+    A digest-pinned reference (``repo@sha256:<64 hex chars>``) always
+    resolves to exactly one immutable set of image bytes. A tag (including
+    ``:latest`` or a version like ``:0.3.0``) is a mutable pointer that can
+    be repointed at any time, and this SDK has no way to verify that a
+    given tag currently exists or contains a working Streamline server —
+    so accepting one here would let a container silently fail to start (or
+    silently start a different image than the caller expects) instead of
+    failing fast with a clear message.
+    """
+    if not image:
+        raise ValueError("StreamlineContainer requires a non-empty image reference")
+    if "@sha256:" not in image:
+        raise ValueError(
+            f"StreamlineContainer image {image!r} is not pinned by digest. "
+            "Pass an explicit, immutable reference of the form "
+            "'registry/repo@sha256:<64 hex chars>' — mutable tags "
+            "(including ':latest' and version tags) are not accepted "
+            "because they are not reproducible and cannot be verified to "
+            "exist or work in advance."
+        )
+    digest = image.split("@sha256:", 1)[1]
+    if len(digest) != 64 or not all(c in "0123456789abcdef" for c in digest.lower()):
+        raise ValueError(
+            f"StreamlineContainer image {image!r} has a malformed sha256 "
+            "digest; it must be exactly 64 hexadecimal characters"
+        )
+
 
 
 class StreamlineContainer(DockerContainer):
@@ -15,11 +49,21 @@ class StreamlineContainer(DockerContainer):
     Streamline is a Kafka-compatible streaming platform that provides a lightweight,
     single-binary alternative to Apache Kafka.
 
+    .. important::
+        There is no default image: you must pass an explicit, digest-pinned
+        image reference (``registry/repo@sha256:...``). A previous version
+        of this class defaulted to ``ghcr.io/streamlinelabs/streamline:0.3.0``,
+        but no such tag has ever been published, and even if one existed, a
+        mutable tag is not reproducible for tests — the same tag can point
+        to different bytes tomorrow. Pin to a digest you have verified is
+        reachable in your environment.
+
     Example:
         >>> from streamline_testcontainers import StreamlineContainer
         >>> from kafka import KafkaProducer
         >>>
-        >>> with StreamlineContainer() as streamline:
+        >>> image = "ghcr.io/streamlinelabs/streamline@sha256:<digest>"
+        >>> with StreamlineContainer(image) as streamline:
         ...     producer = KafkaProducer(
         ...         bootstrap_servers=streamline.get_bootstrap_servers()
         ...     )
@@ -36,7 +80,7 @@ class StreamlineContainer(DockerContainer):
 
     def __init__(
         self,
-        image: str = "ghcr.io/streamlinelabs/streamline:latest",
+        image: str,
         log_level: str = "info",
         **kwargs,
     ):
@@ -44,18 +88,27 @@ class StreamlineContainer(DockerContainer):
         Initialize a Streamline container.
 
         Args:
-            image: Docker image to use (default: streamline/streamline:latest)
+            image: Docker image reference, required, and must be pinned by
+                digest (contain ``@sha256:...``). Mutable tags (including
+                ``:latest`` and version tags such as ``:0.3.0``) are
+                rejected because they are not reproducible and this SDK
+                cannot verify they point at a real, working Streamline
+                image in your environment.
             log_level: Log level - trace, debug, info, warn, error (default: info)
             **kwargs: Additional arguments passed to DockerContainer
+
+        Raises:
+            ValueError: If ``image`` is not pinned by digest.
         """
+        _require_digest_pinned_image(image)
         super().__init__(image, **kwargs)
 
         self.with_exposed_ports(self.KAFKA_PORT, self.HTTP_PORT)
         self.with_env("STREAMLINE_LISTEN_ADDR", f"0.0.0.0:{self.KAFKA_PORT}")
         self.with_env("STREAMLINE_HTTP_ADDR", f"0.0.0.0:{self.HTTP_PORT}")
-        self.with_env("STREAMLINE_LOG_LEVEL", log_level)
+        self.with_log_level(log_level)
 
-    def start(self) -> "StreamlineContainer":
+    def start(self) -> StreamlineContainer:
         """
         Start the container and wait for it to be ready.
 
@@ -127,33 +180,42 @@ class StreamlineContainer(DockerContainer):
         Raises:
             RuntimeError: If topic creation fails
         """
+        if partitions <= 0:
+            raise ValueError("partitions must be greater than zero")
+        topic_arg = shlex.quote(name)
         exit_code, output = self.exec(
-            f"streamline-cli topics create {name} --partitions {partitions}"
+            f"streamline-cli topics create {topic_arg} --partitions {partitions}"
         )
         if exit_code != 0:
             raise RuntimeError(f"Failed to create topic '{name}': {output}")
 
-    def with_debug_logging(self) -> "StreamlineContainer":
+    def with_debug_logging(self) -> StreamlineContainer:
         """
         Enable debug logging.
 
         Returns:
             self for method chaining
         """
-        self.with_env("STREAMLINE_LOG_LEVEL", "debug")
-        return self
+        return self.with_log_level("debug")
 
-    def with_trace_logging(self) -> "StreamlineContainer":
+    def with_trace_logging(self) -> StreamlineContainer:
         """
         Enable trace logging.
 
         Returns:
             self for method chaining
         """
-        self.with_env("STREAMLINE_LOG_LEVEL", "trace")
+        return self.with_log_level("trace")
+
+    def with_log_level(self, log_level: str) -> StreamlineContainer:
+        """Set the Streamline log level."""
+        normalized = log_level.lower()
+        if normalized not in {"trace", "debug", "info", "warn", "error"}:
+            raise ValueError("log_level must be one of trace, debug, info, warn, error")
+        self.with_env("STREAMLINE_LOG_LEVEL", normalized)
         return self
 
-    def with_in_memory(self) -> "StreamlineContainer":
+    def with_in_memory(self) -> StreamlineContainer:
         """
         Enable in-memory storage mode (no disk persistence).
 
@@ -163,7 +225,7 @@ class StreamlineContainer(DockerContainer):
         self.with_env("STREAMLINE_IN_MEMORY", "true")
         return self
 
-    def with_playground(self) -> "StreamlineContainer":
+    def with_playground(self) -> StreamlineContainer:
         """
         Enable playground mode (pre-loaded demo topics).
 
@@ -186,7 +248,7 @@ class StreamlineContainer(DockerContainer):
         for name, partitions in topics.items():
             self.create_topic(name, partitions)
 
-    def produce_message(self, topic: str, value: str, key: Optional[str] = None) -> None:
+    def produce_message(self, topic: str, value: str, key: str | None = None) -> None:
         """
         Produce a single message to a topic.
 
@@ -198,9 +260,9 @@ class StreamlineContainer(DockerContainer):
         Raises:
             RuntimeError: If message production fails
         """
-        cmd = f'streamline-cli produce {topic} -m "{value}"'
+        cmd = f"streamline-cli produce {shlex.quote(topic)} -m {shlex.quote(value)}"
         if key:
-            cmd += f' -k "{key}"'
+            cmd += f" -k {shlex.quote(key)}"
         exit_code, output = self.exec(cmd)
         if exit_code != 0:
             raise RuntimeError(f"Failed to produce message: {output}")
@@ -226,12 +288,13 @@ class StreamlineContainer(DockerContainer):
             TimeoutError: If topics don't appear within the timeout
         """
         import time
+
         start = time.time()
         while time.time() - start < timeout:
             all_exist = True
             for topic in topics:
                 exit_code, _ = self.exec(
-                    f"streamline-cli topics describe {topic}"
+                    f"streamline-cli topics describe {shlex.quote(topic)}"
                 )
                 if exit_code != 0:
                     all_exist = False
@@ -251,9 +314,7 @@ class StreamlineContainer(DockerContainer):
         Raises:
             AssertionError: If the topic does not exist
         """
-        exit_code, _ = self.exec(
-            f"streamline-cli topics describe {topic}"
-        )
+        exit_code, _ = self.exec(f"streamline-cli topics describe {shlex.quote(topic)}")
         assert exit_code == 0, f"Topic '{topic}' does not exist"
 
     def assert_healthy(self) -> None:
@@ -264,6 +325,7 @@ class StreamlineContainer(DockerContainer):
             AssertionError: If the health check fails
         """
         import urllib.request
+
         try:
             resp = urllib.request.urlopen(self.get_health_url(), timeout=5)
             assert resp.status == 200, f"Health check returned status {resp.status}"
@@ -303,9 +365,7 @@ class StreamlineContainer(DockerContainer):
         Returns:
             List of consumer group IDs
         """
-        exit_code, output = self.exec(
-            "streamline-cli groups list --format json"
-        )
+        exit_code, output = self.exec("streamline-cli groups list --format json")
         if exit_code != 0:
             raise RuntimeError(f"Failed to list consumer groups: {output}")
         groups = []
@@ -326,7 +386,7 @@ class StreamlineContainer(DockerContainer):
             AssertionError: If the group does not exist
         """
         exit_code, _ = self.exec(
-            f"streamline-cli groups describe {group_id}"
+            f"streamline-cli groups describe {shlex.quote(group_id)}"
         )
         assert exit_code == 0, f"Consumer group '{group_id}' does not exist"
 
@@ -341,11 +401,12 @@ class StreamlineContainer(DockerContainer):
             Number of partitions
         """
         exit_code, output = self.exec(
-            f"streamline-cli topics describe {topic} --format json"
+            f"streamline-cli topics describe {shlex.quote(topic)} --format json"
         )
         if exit_code != 0:
             raise RuntimeError(f"Topic '{topic}' not found")
         import json
+
         try:
             data = json.loads(output)
             return data.get("partitions", 1) if isinstance(data, dict) else 1
@@ -375,12 +436,13 @@ class StreamlineContainer(DockerContainer):
         Returns:
             Cluster info as a dictionary
         """
-        import urllib.request
         import json
+        import urllib.request
+
         resp = urllib.request.urlopen(self.get_info_url(), timeout=5)
         return json.loads(resp.read().decode())
 
-    def with_authentication(self, username: str, password: str) -> "StreamlineContainer":
+    def with_authentication(self, username: str, password: str) -> StreamlineContainer:
         """
         Enable SASL/PLAIN authentication.
 
@@ -396,7 +458,9 @@ class StreamlineContainer(DockerContainer):
         self.with_env("STREAMLINE_AUTH_DEFAULT_PASSWORD", password)
         return self
 
-    def with_auto_create_topics(self, default_partitions: int = 1) -> "StreamlineContainer":
+    def with_auto_create_topics(
+        self, default_partitions: int = 1
+    ) -> StreamlineContainer:
         """
         Enable auto-topic creation with a default partition count.
 
@@ -411,7 +475,7 @@ class StreamlineContainer(DockerContainer):
         return self
 
     @classmethod
-    def as_kafka_replacement(cls) -> "StreamlineContainer":
+    def as_kafka_replacement(cls, image: str) -> StreamlineContainer:
         """
         Create a Streamline container configured as a drop-in Kafka replacement.
 
@@ -421,32 +485,38 @@ class StreamlineContainer(DockerContainer):
             container = KafkaContainer("confluentinc/cp-kafka:7.4.0")
 
             # After (Streamline):
-            container = StreamlineContainer.as_kafka_replacement()
+            container = StreamlineContainer.as_kafka_replacement(image)
+
+        Args:
+            image: Digest-pinned Streamline image reference (see
+                :meth:`__init__`); there is no default.
 
         Returns:
             A new StreamlineContainer configured for Kafka compatibility
         """
-        return cls().with_in_memory().with_auto_create_topics(1)
+        return cls(image).with_in_memory().with_auto_create_topics(1)
 
     @classmethod
     def with_pre_configured_topics(
-        cls, topics: dict[str, int]
-    ) -> "StreamlineContainer":
+        cls, image: str, topics: dict[str, int]
+    ) -> StreamlineContainer:
         """
         Create a container pre-configured with topics.
 
         Args:
+            image: Digest-pinned Streamline image reference (see
+                :meth:`__init__`); there is no default.
             topics: Dictionary of topic name to partition count
 
         Returns:
             A new StreamlineContainer with pre-configured topics
         """
-        container = cls().with_in_memory()
+        container = cls(image).with_in_memory()
         for name, partitions in topics.items():
             container.with_env(f"STREAMLINE_AUTO_TOPIC_{name}", str(partitions))
         return container
 
-    def with_ephemeral(self) -> "StreamlineContainer":
+    def with_ephemeral(self) -> StreamlineContainer:
         """
         Enable ephemeral mode: in-memory, auto-cleanup, fastest startup.
 
@@ -460,7 +530,7 @@ class StreamlineContainer(DockerContainer):
         self.with_env("STREAMLINE_IN_MEMORY", "true")
         return self
 
-    def with_ephemeral_idle_timeout(self, seconds: int) -> "StreamlineContainer":
+    def with_ephemeral_idle_timeout(self, seconds: int) -> StreamlineContainer:
         """
         Set the idle timeout before ephemeral server auto-shuts down.
 
@@ -473,7 +543,7 @@ class StreamlineContainer(DockerContainer):
         self.with_env("STREAMLINE_EPHEMERAL_IDLE_TIMEOUT", str(seconds))
         return self
 
-    def with_ephemeral_auto_topics(self, topic_specs: str) -> "StreamlineContainer":
+    def with_ephemeral_auto_topics(self, topic_specs: str) -> StreamlineContainer:
         """
         Auto-create topics on startup in ephemeral mode.
 
@@ -488,25 +558,26 @@ class StreamlineContainer(DockerContainer):
         return self
 
     @classmethod
-    def for_testing(cls) -> "StreamlineContainer":
+    def for_testing(cls, image: str) -> StreamlineContainer:
         """
         Create a container optimized for CI/CD testing.
 
         Ephemeral mode, in-memory, auto-create topics, minimal logging.
 
+        Args:
+            image: Digest-pinned Streamline image reference (see
+                :meth:`__init__`); there is no default.
+
         Example::
 
             @pytest.fixture(scope="session")
             def streamline():
-                with StreamlineContainer.for_testing() as container:
+                with StreamlineContainer.for_testing(image) as container:
                     yield container
 
         Returns:
             A new StreamlineContainer optimized for testing
         """
-        return (
-            cls()
-            .with_ephemeral()
-            .with_auto_create_topics(3)
-            .with_log_level("warn")
+        return cls(image).with_ephemeral().with_auto_create_topics(3).with_log_level(
+            "warn"
         )

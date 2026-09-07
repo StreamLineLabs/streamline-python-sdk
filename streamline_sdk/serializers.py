@@ -25,24 +25,29 @@ Usage:
     )
 
     # Serialize a record
-    data = serializer.serialize("users", {"id": 1, "name": "Alice", "email": "alice@example.com"})
+    data = await serializer.serialize(
+        "users",
+        {"id": 1, "name": "Alice", "email": "alice@example.com"},
+    )
 
     # Produce with serialized data
-    await client.produce("users", value=data)
+    await client.producer.send("users", value=data)
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from dataclasses import dataclass
+from typing import Any
 
+from ._url import encode_path_segment
 from .exceptions import StreamlineError
 
 
 @dataclass
 class SchemaRegistryConfig:
     """Configuration for the Schema Registry client."""
+
     url: str = "http://localhost:9094"
     auto_register: bool = True
     cache_capacity: int = 256
@@ -53,91 +58,110 @@ class SchemaRegistryClient:
 
     def __init__(self, config: SchemaRegistryConfig):
         self.config = config
-        self._cache: Dict[str, int] = {}
+        self._cache: dict[str, int] = {}
 
-    async def register_schema(self, subject: str, schema_str: str, schema_type: str = "AVRO") -> int:
+    async def register_schema(
+        self, subject: str, schema_str: str, schema_type: str = "AVRO"
+    ) -> int:
         """Register a schema and return its ID."""
         import aiohttp
+
         async with aiohttp.ClientSession() as session:
-            url = f"{self.config.url}/subjects/{subject}/versions"
+            url = f"{self.config.url}/subjects/{encode_path_segment(subject)}/versions"
             payload = {"schema": schema_str, "schemaType": schema_type}
             async with session.post(url, json=payload) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    schema_id = data["id"]
+                    schema_id = int(data["id"])
                     self._cache[subject] = schema_id
                     return schema_id
                 else:
                     text = await resp.text()
-                    raise StreamlineError(f"Schema registration failed: {resp.status} {text}")
+                    raise StreamlineError(
+                        f"Schema registration failed: {resp.status} {text}"
+                    )
 
     async def get_schema(self, schema_id: int) -> str:
         """Get a schema by ID."""
         import aiohttp
+
         async with aiohttp.ClientSession() as session:
             url = f"{self.config.url}/schemas/ids/{schema_id}"
             async with session.get(url) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    return data["schema"]
+                    return str(data["schema"])
                 else:
                     raise StreamlineError(f"Schema not found: {schema_id}")
 
     async def get_versions(self, subject: str) -> list[int]:
         """List all schema version numbers for a subject."""
         import aiohttp
+
         async with aiohttp.ClientSession() as session:
-            url = f"{self.config.url}/subjects/{subject}/versions"
+            url = f"{self.config.url}/subjects/{encode_path_segment(subject)}/versions"
             async with session.get(url) as resp:
                 if resp.status == 200:
-                    return await resp.json()
+                    return [int(v) for v in await resp.json()]
                 elif resp.status == 404:
                     return []
                 else:
                     text = await resp.text()
-                    raise StreamlineError(f"Failed to get versions: {resp.status} {text}")
+                    raise StreamlineError(
+                        f"Failed to get versions: {resp.status} {text}"
+                    )
 
     async def check_compatibility(
         self, subject: str, schema_str: str, schema_type: str = "AVRO"
     ) -> bool:
         """Check if a schema is compatible with the latest version."""
         import aiohttp
+
         async with aiohttp.ClientSession() as session:
-            url = f"{self.config.url}/compatibility/subjects/{subject}/versions/latest"
+            url = (
+                f"{self.config.url}/compatibility/subjects/"
+                f"{encode_path_segment(subject)}/versions/latest"
+            )
             payload = {"schema": schema_str, "schemaType": schema_type}
             async with session.post(url, json=payload) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    return data.get("is_compatible", False)
+                    return bool(data.get("is_compatible", False))
                 elif resp.status == 404:
                     return True  # No existing schema means compatible
                 else:
                     text = await resp.text()
-                    raise StreamlineError(f"Compatibility check failed: {resp.status} {text}")
+                    raise StreamlineError(
+                        f"Compatibility check failed: {resp.status} {text}"
+                    )
 
     async def get_subjects(self) -> list[str]:
         """List all registered subjects."""
         import aiohttp
+
         async with aiohttp.ClientSession() as session:
             url = f"{self.config.url}/subjects"
             async with session.get(url) as resp:
                 if resp.status == 200:
-                    return await resp.json()
+                    return [str(s) for s in await resp.json()]
                 else:
                     raise StreamlineError(f"Failed to list subjects: {resp.status}")
 
     async def delete_subject(self, subject: str) -> list[int]:
         """Delete a subject and all its versions. Returns deleted version numbers."""
         import aiohttp
+
         async with aiohttp.ClientSession() as session:
-            url = f"{self.config.url}/subjects/{subject}"
+            url = f"{self.config.url}/subjects/{encode_path_segment(subject)}"
             async with session.delete(url) as resp:
                 if resp.status == 200:
                     self._cache.pop(subject, None)
-                    return await resp.json()
+                    return [int(v) for v in await resp.json()]
                 else:
                     text = await resp.text()
-                    raise StreamlineError(f"Failed to delete subject: {resp.status} {text}")
+                    raise StreamlineError(
+                        f"Failed to delete subject: {resp.status} {text}"
+                    )
 
 
 class AvroSerializer:
@@ -150,24 +174,29 @@ class AvroSerializer:
     def __init__(
         self,
         schema_registry_url: str = "http://localhost:9094",
-        schema_str: Optional[str] = None,
+        schema_str: str | None = None,
         auto_register: bool = True,
     ):
-        self.registry = SchemaRegistryClient(SchemaRegistryConfig(url=schema_registry_url))
+        self.registry = SchemaRegistryClient(
+            SchemaRegistryConfig(url=schema_registry_url)
+        )
         self.schema_str = schema_str
         self.auto_register = auto_register
-        self._schema_id: Optional[int] = None
+        self._schema_id: int | None = None
 
-    async def serialize(self, topic: str, value: Dict[str, Any]) -> bytes:
+    async def serialize(self, topic: str, value: dict[str, Any]) -> bytes:
         """Serialize a value to Avro binary with schema ID prefix."""
         if self._schema_id is None and self.auto_register and self.schema_str:
             subject = f"{topic}-value"
-            self._schema_id = await self.registry.register_schema(subject, self.schema_str, "AVRO")
+            self._schema_id = await self.registry.register_schema(
+                subject, self.schema_str, "AVRO"
+            )
 
         try:
+            import io
+
             import avro.io
             import avro.schema
-            import io
 
             schema = avro.schema.parse(self.schema_str)
             writer = avro.io.DatumWriter(schema)
@@ -175,8 +204,8 @@ class AvroSerializer:
 
             # Confluent wire format: 0x00 + 4-byte schema ID (big-endian)
             if self._schema_id is not None:
-                buf.write(b'\x00')
-                buf.write(self._schema_id.to_bytes(4, 'big'))
+                buf.write(b"\x00")
+                buf.write(self._schema_id.to_bytes(4, "big"))
 
             encoder = avro.io.BinaryEncoder(buf)
             writer.write(value, encoder)
@@ -198,18 +227,20 @@ class JsonSchemaSerializer:
     def __init__(
         self,
         schema_registry_url: str = "http://localhost:9094",
-        schema_str: Optional[str] = None,
+        schema_str: str | None = None,
         auto_register: bool = True,
         validate: bool = True,
     ):
-        self.registry = SchemaRegistryClient(SchemaRegistryConfig(url=schema_registry_url))
+        self.registry = SchemaRegistryClient(
+            SchemaRegistryConfig(url=schema_registry_url)
+        )
         self.schema_str = schema_str
         self.auto_register = auto_register
         self.validate = validate
-        self._schema_id: Optional[int] = None
-        self._schema: Optional[dict] = json.loads(schema_str) if schema_str else None
+        self._schema_id: int | None = None
+        self._schema: dict | None = json.loads(schema_str) if schema_str else None
 
-    async def serialize(self, topic: str, value: Dict[str, Any]) -> bytes:
+    async def serialize(self, topic: str, value: dict[str, Any]) -> bytes:
         """Serialize a value to JSON bytes with optional validation."""
         if self._schema_id is None and self.auto_register and self.schema_str:
             subject = f"{topic}-value"
@@ -220,6 +251,7 @@ class JsonSchemaSerializer:
         if self.validate and self._schema:
             try:
                 import jsonschema
+
                 jsonschema.validate(value, self._schema)
             except ImportError:
                 pass  # Skip validation if jsonschema not installed
@@ -230,5 +262,5 @@ class JsonSchemaSerializer:
 
         if self._schema_id is not None:
             # Confluent wire format prefix
-            return b'\x00' + self._schema_id.to_bytes(4, 'big') + payload
+            return b"\x00" + self._schema_id.to_bytes(4, "big") + payload
         return payload

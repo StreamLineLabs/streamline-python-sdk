@@ -1,4 +1,4 @@
-.PHONY: integration-test build test lint fmt clean help install dev benchmark
+.PHONY: integration-test conformance-test release-check build test lint fmt clean help install dev benchmark
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -30,13 +30,49 @@ dev: install ## Set up development environment
 
 integration-test: ## Run integration tests (requires Docker)
 	docker compose -f docker-compose.test.yml up -d
-	@echo "Waiting for Streamline server..."
-	@for i in $$(seq 1 30); do \
-		if curl -sf http://localhost:9094/health/live > /dev/null 2>&1; then \
+	@status=0; \
+	echo "Waiting for Streamline server..."; \
+	for i in $$(seq 1 30); do \
+		if curl -sf http://localhost:9094/health; then \
 			echo "Server ready"; \
 			break; \
 		fi; \
+		if [ $$i -eq 30 ]; then status=1; fi; \
 		sleep 2; \
-	done
-	pytest tests/ -m integration --timeout=60 || true
-	docker compose -f docker-compose.test.yml down -v
+	done; \
+	if [ $$status -eq 0 ]; then \
+		STREAMLINE_INTEGRATION=1 pytest tests/ -m integration --timeout=60 \
+			|| status=$$?; \
+	fi; \
+	docker compose -f docker-compose.test.yml down -v; \
+	exit $$status
+
+conformance-test: ## Run required conformance tests (requires Docker)
+	docker compose -f docker-compose.test.yml up -d
+	@status=0; \
+	echo "Waiting for Streamline server..."; \
+	for i in $$(seq 1 30); do \
+		if curl -sf http://localhost:9094/health; then \
+			echo "Server ready"; \
+			break; \
+		fi; \
+		if [ $$i -eq 30 ]; then status=1; fi; \
+		sleep 2; \
+	done; \
+	if [ $$status -eq 0 ]; then \
+		CONFORMANCE=1 STREAMLINE_REQUIRE_CONFORMANCE=1 \
+			pytest tests/conformance -m conformance --timeout=60 -rs \
+			|| status=$$?; \
+	fi; \
+	docker compose -f docker-compose.test.yml down -v; \
+	exit $$status
+
+release-check: ## Validate all packages without publishing
+	python -m build
+	twine check dist/*
+	python -m build testcontainers
+	twine check testcontainers/dist/*
+	cargo test --manifest-path streamline_embedded/Cargo.toml
+	cargo package --manifest-path streamline_embedded/Cargo.toml --allow-dirty --no-verify
+	maturin build --release --manifest-path streamline_embedded/Cargo.toml
+	twine check streamline_embedded/target/wheels/*

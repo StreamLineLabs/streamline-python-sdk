@@ -22,7 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass, field
-from typing import Any, Optional, Union
+from typing import Any
 
 try:
     import aiohttp
@@ -48,7 +48,7 @@ class ValidationError:
     message: str = ""
 
     @classmethod
-    def from_json(cls, data: dict[str, Any]) -> "ValidationError":
+    def from_json(cls, data: dict[str, Any]) -> ValidationError:
         return cls(
             field_path=str(data.get("field_path", "")),
             expected=str(data.get("expected", "")),
@@ -62,7 +62,7 @@ class ValidationResult:
     """Outcome of a contract validation request."""
 
     valid: bool
-    schema_id: Optional[int] = None
+    schema_id: int | None = None
     errors: list[ValidationError] = field(default_factory=list)
 
 
@@ -83,7 +83,7 @@ class ContractsClient:
     async def validate(
         self,
         contract: dict[str, Any],
-        value: Union[dict[str, Any], list[Any], str, bytes],
+        value: dict[str, Any] | list[Any] | str | bytes,
     ) -> ValidationResult:
         """Dry-run ``contract`` against ``value``.
 
@@ -137,8 +137,8 @@ class ContractsClient:
                             payload = {"raw": text}
                     return resp.status, payload
         else:
-            import urllib.request
             import urllib.error
+            import urllib.request
 
             data = json.dumps(body).encode("utf-8")
             req = urllib.request.Request(

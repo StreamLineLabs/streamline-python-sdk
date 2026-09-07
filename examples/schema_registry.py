@@ -1,6 +1,6 @@
 """Schema Registry example for the Streamline Python SDK.
 
-Demonstrates Avro schema registration, validated produce/consume,
+Demonstrates JSON schema registration and schema-aware produce/consume,
 and compatibility checking.
 
 Ensure a Streamline server is running at localhost:9092 with the
@@ -17,24 +17,23 @@ import json
 import os
 
 from streamline_sdk import StreamlineClient, TopicConfig
+from streamline_sdk.schema_producer import SchemaConsumer, SchemaProducer
 from streamline_sdk.serializers import (
-    AvroSerializer,
     SchemaRegistryClient,
     SchemaRegistryConfig,
 )
 
-# Avro schema for a User record
+# JSON schema for a User record
 USER_SCHEMA = json.dumps(
     {
-        "type": "record",
-        "name": "User",
-        "namespace": "com.streamline.examples",
-        "fields": [
-            {"name": "id", "type": "int"},
-            {"name": "name", "type": "string"},
-            {"name": "email", "type": "string"},
-            {"name": "created_at", "type": "string"},
-        ],
+        "type": "object",
+        "properties": {
+            "id": {"type": "integer"},
+            "name": {"type": "string"},
+            "email": {"type": "string"},
+            "created_at": {"type": "string"},
+        },
+        "required": ["id", "name", "email", "created_at"],
     }
 )
 
@@ -42,11 +41,9 @@ SUBJECT = "users-value"
 TOPIC = "users"
 
 
-async def main():
+async def main() -> None:
     """Demonstrate schema registry usage."""
-    bootstrap_servers = os.environ.get(
-        "STREAMLINE_BOOTSTRAP_SERVERS", "localhost:9092"
-    )
+    bootstrap_servers = os.environ.get("STREAMLINE_BOOTSTRAP_SERVERS", "localhost:9092")
     schema_registry_url = os.environ.get(
         "STREAMLINE_SCHEMA_REGISTRY_URL", "http://localhost:9094"
     )
@@ -70,12 +67,12 @@ async def main():
         except Exception as e:
             print(f"Topic may already exist: {e}")
 
-        # === 2. Register an Avro schema ===
+        # === 2. Register a JSON schema ===
         print("\n=== Registering Schema ===")
-        schema_id = await schema_registry.register(
+        schema_id = await schema_registry.register_schema(
             subject=SUBJECT,
-            schema=USER_SCHEMA,
-            schema_type="AVRO",
+            schema_str=USER_SCHEMA,
+            schema_type="JSON",
         )
         print(f"Registered schema with id={schema_id} for subject={SUBJECT}")
 
@@ -87,16 +84,19 @@ async def main():
         print("\n=== Checking Compatibility ===")
         compatible = await schema_registry.check_compatibility(
             subject=SUBJECT,
-            schema=USER_SCHEMA,
-            schema_type="AVRO",
+            schema_str=USER_SCHEMA,
+            schema_type="JSON",
         )
         print(f"Schema compatible: {compatible}")
 
         # === 4. Produce messages with schema validation ===
         print("\n=== Producing Messages with Schema ===")
-        serializer = AvroSerializer(
-            schema_registry_url=schema_registry_url,
-            schema_str=USER_SCHEMA,
+        schema_producer = SchemaProducer(
+            producer=client.producer,
+            schema_registry=schema_registry,
+            subject=SUBJECT,
+            schema=USER_SCHEMA,
+            schema_type="JSON",
         )
 
         for i in range(5):
@@ -106,10 +106,9 @@ async def main():
                 "email": f"user{i}@example.com",
                 "created_at": "2025-01-15T10:00:00Z",
             }
-            serialized = await serializer.serialize(user, SUBJECT)
-            result = await client.producer.send(
+            result = await schema_producer.send(
                 TOPIC,
-                value=serialized,
+                value=user,
                 key=f"user-{i}".encode(),
             )
             print(
@@ -123,16 +122,23 @@ async def main():
             await consumer.subscribe([TOPIC])
             await consumer.seek_to_beginning()
 
-            messages = await consumer.poll(timeout_ms=5000, max_records=10)
+            schema_consumer = SchemaConsumer(
+                consumer=consumer,
+                schema_registry=schema_registry,
+            )
+            messages = await schema_consumer.poll(
+                timeout_ms=5000,
+                max_records=10,
+            )
             print(f"  Received {len(messages)} messages:")
 
             for msg in messages:
-                deserialized = await serializer.deserialize(msg.value, SUBJECT)
                 print(
                     f"    Partition: {msg.partition}, "
                     f"Offset: {msg.offset}, "
-                    f"Key: {msg.key}, "
-                    f"User: {deserialized}"
+                    f"Key: {msg.key!r}, "
+                    f"Schema: {msg.schema_id}, "
+                    f"User: {msg.value}"
                 )
 
         print("\nDone!")

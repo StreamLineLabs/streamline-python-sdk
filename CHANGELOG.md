@@ -8,17 +8,148 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- TLS/mTLS now builds and forwards a real `SSLContext` consistently to the
+  producer, consumer, and admin clients. Invalid SASL/TLS combinations fail
+  early with `ConfigurationError`.- README and runnable examples now use the actual async producer, consumer,
+  admin, query, schema, AI, security, and memory APIs.
+- Dynamic topic, group, branch, search, and schema-registry path segments are
+  percent-encoded before HTTP requests.
+- Duplicate `TopicConfig`, `TopicInfo`, and `ConsumerGroupInfo` definitions are
+  canonicalized in `streamline_sdk.types`; `streamline_sdk.admin` preserves
+  import compatibility by re-exporting the same classes.
+- Python 3.9 support: every runtime module now carries
+  `from __future__ import annotations`, so PEP 604 (`str | None`) and PEP 585
+  (`list[str]`) annotations are no longer evaluated at import time. Previously
+  `import streamline_sdk` raised `TypeError` on Python 3.9.
+- `cryptography>=42.0.0` is now a declared runtime dependency. The package
+  `__init__` re-exports `StreamlineVerifier`/`AttestationVerificationResult`
+  from `streamline_sdk.verifier`, which imports `cryptography` at module scope,
+  so a plain `pip install streamline-sdk` previously produced an unimportable
+  package.
+- `pytest tests/` is self-contained again: server-dependent tests are gated on
+  `STREAMLINE_INTEGRATION=1` (marker `integration`) and `CONFORMANCE=1`
+  (marker `conformance`) instead of failing/hanging against `localhost`.
+  `make integration-test` and the `integration` workflow remain the runnable
+  integration entry points.
+- `ruff check .` and `mypy` pass again: modernised annotations, fixed unused
+  imports/variables, and replaced `Any` leaks with explicit types and guards.
+- `Producer.send_record()` now returns a `datetime` timestamp for buffered
+  transactional records, matching `RecordMetadata.timestamp`.
+- `examples/agent_memory/memory_demo.py` uses the real `MemoryClient` API
+  instead of non-existent `StreamlineClient.memory_*` helpers.
+- `Producer.send()` no longer bypasses an active client-buffered transaction:
+  previously only `send_record()` checked for an in-progress transaction, so
+  calling `send()` directly during a transaction sent straight to the broker
+  instead of being buffered. `commit_transaction()` now snapshots and clears
+  the transaction buffer and exits buffering mode *before* replaying the
+  buffered sends, fixing a bug where committing re-appended each buffered
+  record back onto the very list it was draining, instead of transmitting
+  it. Transactions are now explicitly documented as **client-buffered and
+  non-atomic**: there is no broker-side transactional coordinator, so a
+  partial failure during commit can leave some messages delivered and
+  others not.
+- `TopicConfig` and `ConsumerGroupInfo` dispatch legacy positional
+  constructor calls (the pre-canonicalization field orders) to the correct
+  fields again. The canonicalization work had silently changed what a
+  positional call like `ConsumerGroupInfo(group_id, state, protocol_type,
+  protocol, members)` meant (the 3rd/4th/5th positional arguments landed in
+  the wrong fields); both classes now detect the legacy shape (by argument
+  type for `TopicConfig`, by argument count for `ConsumerGroupInfo`) and
+  route it correctly, emitting a `DeprecationWarning`.
+- Dynamic URL path segments (topic/group/branch/schema-subject identifiers)
+  now reject the exact literal values `.` and `..` with `ConfigurationError`
+  before a request is ever built. `yarl` (which `aiohttp` is built on)
+  normalizes these exact segments out of the final URL — even when
+  percent-encoded — silently redirecting the request to a different
+  endpoint than the caller specified; every other dot-containing segment
+  (e.g. `a..b`, `..hidden`) is unaffected and continues to work.
+- The embedded Rust extension's placeholder storage methods
+  (`create_topic`, `delete_topic`, `produce`, `consume`, `list_topics`,
+  `latest_offset`, `flush`) now raise `NotImplementedError` instead of
+  silently returning fabricated success values (e.g. offset `0`, an empty
+  topic list) while the Streamline C FFI remains unlinked.
+- `StreamlineContainer` (Testcontainers) no longer has a default image and
+  now requires an explicit reference pinned by digest
+  (`registry/repo@sha256:...`); the previous default,
+  `ghcr.io/streamlinelabs/streamline:0.3.0`, has never been published, so a
+  bare `StreamlineContainer()` could only ever fail to pull an image that
+  does not exist.
+- The release workflow's CycloneDX SBOM is now generated from a clean,
+  wheel-only virtual environment. Previously `cyclonedx-py environment` was
+  invoked in the same environment used to build/check the distribution,
+  which has `build`/`twine`/`cyclonedx-bom` installed (and dozens of their
+  transitive dependencies) but never the package's own runtime dependencies
+  (`python -m build` builds in an isolated PEP 517 backend, not the calling
+  environment) — so the generated SBOM listed build tooling as
+  "components" while omitting `aiokafka`/`cryptography`, the SDK's actual
+  runtime dependencies, entirely.
+
+### Added
+- Python 3.9-3.14 CI matrix, executable/typechecked README snippet tests, and a
+  required conformance job that fails when no conformance test executes.
+- Non-publishing build/package validation for the nested Testcontainers Python
+  distribution and embedded Rust extension scaffold.
+- A dedicated maturin `pyproject.toml` for the embedded extension so wheel
+  metadata and names no longer inherit the root `streamline-sdk` package.
+- Trusted PyPI publishing via OIDC, mandatory CycloneDX SBOM generation, and
+  GitHub build-provenance/SBOM attestations.
+- Dependabot coverage for nested Python and Rust manifests.
+- `search` extra (`pip install streamline-sdk[search]`) providing `aiohttp`,
+  matching the hint already raised by `Consumer.search()`.
+- `BrokerInfo`, `ClusterInfo`, `ConsumerLag`, `ConsumerGroupLag`,
+  `InspectedMessage` and `MetricPoint` are now listed in `streamline_sdk.__all__`
+  (they were already importable from the package).
+- Regression tests for the packaging/import contract and for the test-suite
+  gating (`tests/test_packaging_contract.py`, `tests/test_suite_gating.py`).
+- A required, digest-pinned live-conformance job in the release workflow:
+  it hard-blocks (rather than silently skipping) unless an explicit image
+  is configured via the `STREAMLINE_CONFORMANCE_IMAGE` repository
+  variable. The regular integration/conformance workflow uses the same
+  immutable-image requirement and no longer defaults to the nonexistent
+  `streamline:0.3.0` tag.
+  variable, rejects mutable tags, and reuses the existing executed-test-
+  count guard so a run that executes zero conformance tests still fails.
+  `publish` now depends on both this job and `attest` succeeding, and the
+  whole release workflow is guarded by a `concurrency` group so two
+  releases can never run in parallel.
+- Regression tests: yarl/aiohttp final-URL round-trip tests for dynamic
+  path encoding (`tests/test_url_encoding.py`); legacy-positional-
+  constructor dispatch tests (`tests/test_model_compatibility.py`); a
+  dedicated transaction-buffering regression suite
+  (`tests/test_producer.py`); release/testcontainers/embedded requirement
+  coverage (`tests/test_release_configuration.py`); and digest-pinning
+  regression tests for `StreamlineContainer`
+  (`testcontainers/tests/test_container.py`), whose Docker-requiring tests
+  are now gated behind an explicit `STREAMLINE_TESTCONTAINERS_IMAGE`
+  fixture instead of assuming a working default image.
+
+### Changed
+- Security policy, package links, Testcontainers docs, and release-readiness
+  audit now describe the current 0.4.x release and fixture limitations.
+- The embedded extension uses PyO3 0.29 so its validation build supports
+  Python 3.14; Cargo publication is disabled while it remains a scaffold.
+- `mypy` is pinned to `<2.0` in the `dev` extra: mypy 2.x rejects
+  `python_version = "3.9"`, which this package still targets.
+- `testcontainers/README.md` and `streamline_embedded/README.md` no longer
+  advertise a registry install (`pip install testcontainers-streamline` /
+  `pip install streamline-embedded`); both packages are explicitly
+  documented as source-only and unpublished, since CI only builds and
+  validates them (`python -m build` / `cargo package` / `maturin build` +
+  `twine check`) and never runs `twine upload` or `cargo publish`.
+
 
 ## [0.3.0] - 2026-04-20
 
 ### Added
 - Moonshot HTTP modules under `streamline_sdk`:
-  - `branches_admin.BranchesClient` (M5)
+  - `branches_admin.BranchAdminClient` (M5)
   - `contracts.ContractsClient` (M4)
-  - `attestation.AttestationClient` (M4)
+  - `attestation.Attestor` (M4)
   - `search.SearchClient` (M2)
   - `memory.MemoryClient` (M1)
-- Each client is sync-friendly and uses `httpx` under the hood.
+- Each client is async and uses `aiohttp` with a standard-library fallback
+  where supported.
 
 ### Added
 - Admin: `cluster_info()` — cluster overview including broker list

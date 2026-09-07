@@ -5,7 +5,7 @@ Official Python client for [Streamline](https://github.com/streamlinelabs/stream
 [![CI](https://github.com/streamlinelabs/streamline-python-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/streamlinelabs/streamline-python-sdk/actions/workflows/ci.yml)
 [![codecov](https://img.shields.io/codecov/c/github/streamlinelabs/streamline-python-sdk?style=flat-square)](https://codecov.io/gh/streamlinelabs/streamline-python-sdk)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/Python-3.9--3.14-blue.svg)](https://www.python.org/)
 [![PyPI](https://img.shields.io/pypi/v/streamline-sdk)](https://pypi.org/project/streamline-sdk/)
 [![Docs](https://img.shields.io/badge/docs-streamlinelabs.dev-blue.svg)](https://streamlinelabs.dev/docs/sdks/python)
 
@@ -17,20 +17,32 @@ pip install streamline-sdk
 
 ## Quick Start
 
+<!-- snippet-source: examples/readme_quickstart.py -->
 ```python
+from __future__ import annotations
+
+import asyncio
+
 from streamline_sdk import StreamlineClient
 
-# Connect to Streamline
-client = StreamlineClient("localhost:9092")
 
-# Produce messages
-producer = client.producer("my-topic")
-producer.send("Hello, Streamline!")
+async def main() -> None:
+    async with StreamlineClient("localhost:9092") as client:
+        metadata = await client.producer.send(
+            "events",
+            key=b"user-42",
+            value=b"Hello, Streamline!",
+        )
+        print(f"wrote partition={metadata.partition} offset={metadata.offset}")
 
-# Consume messages
-consumer = client.consumer("my-topic", group_id="my-group")
-for message in consumer:
-    print(message.value)
+        async with client.consumer(group_id="quickstart") as consumer:
+            await consumer.subscribe(["events"])
+            for message in await consumer.poll(timeout_ms=1_000):
+                print(message.value)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 ## Features
@@ -44,7 +56,6 @@ for message in consumer:
 - Type hints throughout
 - Compression (LZ4, Zstd, Snappy, Gzip)
 - TLS/mTLS and SASL authentication (PLAIN, SCRAM-SHA-256/512)
-- Connection pooling with configurable pool size
 - Automatic reconnection with exponential backoff
 - Optional OpenTelemetry tracing for produce/consume operations
 
@@ -101,6 +112,8 @@ W3C TraceContext format.
 
 ### Unit Tests
 
+The default run is self-contained — it never contacts a Streamline server:
+
 ```bash
 pip install -e ".[dev]"
 pytest tests/
@@ -108,23 +121,47 @@ pytest tests/
 
 ### Integration Tests
 
-Requires a running Streamline server:
+Requires a running Streamline server. Server-dependent tests are marked
+`integration` (or `conformance`) and are skipped unless explicitly enabled
+via `STREAMLINE_INTEGRATION=1` (or `CONFORMANCE=1`):
 
 ```bash
 docker compose -f docker-compose.test.yml up -d
-pytest tests/ -m integration
+STREAMLINE_INTEGRATION=1 pytest tests/ -m integration
+# or simply:
+make integration-test
 ```
+
+CI runs conformance separately with `CONFORMANCE=1` and an enforcement flag
+that fails if no selected conformance test reaches its call phase. The bundled
+server fixture currently exposes plaintext Kafka and HTTP ports only; TLS,
+mTLS, and SASL conformance require externally supplied endpoints and
+certificate/credential environment variables described in
+[`AUDIT.md`](AUDIT.md).
 
 ## Testcontainers
 
-For integration testing, use the bundled testcontainers module:
+For integration testing, use the bundled testcontainers module (source-only;
+not published to PyPI — see
+[`testcontainers/README.md`](testcontainers/README.md)). It requires an
+explicit, digest-pinned image reference; there is no default image:
 
 ```python
-from testcontainers.streamline import StreamlineContainer
+import pytest
 
-with StreamlineContainer() as streamline:
-    client = StreamlineClient(streamline.get_bootstrap_servers())
-    # ... run tests
+from streamline_sdk import StreamlineClient
+from streamline_testcontainers import StreamlineContainer
+
+IMAGE = "ghcr.io/streamlinelabs/streamline@sha256:<digest-you-verified>"
+
+
+@pytest.mark.asyncio
+async def test_with_streamline() -> None:
+    with StreamlineContainer(IMAGE) as streamline:
+        async with StreamlineClient(
+            streamline.get_bootstrap_servers()
+        ) as client:
+            await client.producer.send("events", value=b"test")
 ```
 
 ## API Reference
@@ -153,20 +190,50 @@ with StreamlineContainer() as streamline:
 
 ### Transactions
 
+<!-- snippet-source: examples/readme_transactions.py -->
 ```python
-async with client.producer as producer:
-    await producer.begin_transaction()
-    try:
-        await producer.send("orders", key=b"k1", value=b"v1")
-        await producer.send("orders", key=b"k2", value=b"v2")
-        await producer.commit_transaction()
-    except Exception:
-        await producer.abort_transaction()
-        raise
+from __future__ import annotations
+
+import asyncio
+
+from streamline_sdk import StreamlineClient
+
+
+async def main() -> None:
+    async with StreamlineClient("localhost:9092") as client:
+        producer = client.producer
+        await producer.begin_transaction()
+        try:
+            await producer.send("orders", key=b"k1", value=b"v1")
+            await producer.send("orders", key=b"k2", value=b"v2")
+            await producer.commit_transaction()
+        except Exception:
+            # commit_transaction() exits buffering mode *before* replaying the
+            # buffered sends (see its docstring), so if it fails partway
+            # through that replay, the transaction is already over. Calling
+            # abort_transaction() unconditionally here would raise
+            # "RuntimeError: No transaction in progress" and mask the real
+            # commit failure. Guard with in_transaction so we only abort
+            # when buffering mode is still active (e.g. begin_transaction()
+            # succeeded but a send() before commit raised).
+            if producer.in_transaction:
+                await producer.abort_transaction()
+            raise
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
-> **Note:** Transactions use client-side buffering — messages are collected and sent as a batch
-> on commit. This provides all-or-nothing delivery at the client level.
+> **Note:** Transactions use client-side buffering — messages are collected while buffering is
+> active and are replayed as ordinary, independent sends when `commit_transaction()` is called.
+> **This is not atomic.** The Streamline broker has no cross-message transactional coordinator,
+> so if the connection fails partway through the replay, earlier messages may already be
+> delivered while later ones are not: **partial delivery is possible**. Because
+> `commit_transaction()` exits buffering mode before replaying, always guard a
+> fallback `abort_transaction()` call with `producer.in_transaction` (as shown
+> above) so it cannot mask the original commit failure by raising its own
+> `RuntimeError: No transaction in progress`.
 
 ### Consumer
 
@@ -200,47 +267,39 @@ async with client.producer as producer:
 | `await admin.metrics_history()` | Server metrics history |
 
 ```python
-async with client.admin as admin:
-    # Cluster overview
-    cluster = await admin.cluster_info()
-    print(f"Cluster: {cluster.cluster_id}, Brokers: {len(cluster.brokers)}")
+# StreamlineClient starts and owns its Admin instance.
+cluster = await client.admin.cluster_info()
+print(f"Cluster: {cluster.cluster_id}, Brokers: {len(cluster.brokers)}")
 
-    # Consumer group lag
-    lag = await admin.consumer_group_lag("my-group")
-    print(f"Total lag: {lag.total_lag}")
-    for p in lag.partitions:
-        print(f"  {p.topic}:{p.partition} lag={p.lag}")
+lag = await client.admin.consumer_group_lag("my-group")
+print(f"Total lag: {lag.total_lag}")
+for partition in lag.partitions:
+    print(f"  {partition.topic}:{partition.partition} lag={partition.lag}")
 
-    # Message inspection
-    messages = await admin.inspect_messages("events", partition=0, limit=10)
-    for m in messages:
-        print(f"offset={m.offset} value={m.value}")
+messages = await client.admin.inspect_messages("events", partition=0, limit=10)
+for message in messages:
+    print(f"offset={message.offset} value={message.value}")
 
-    # Server metrics
-    metrics = await admin.metrics_history()
+metrics = await client.admin.metrics_history()
 ```
 
 ## Requirements
 
-- Python 3.9 or later
-- Streamline server 0.2.0 or later
+- Python 3.9 through 3.14
+- Streamline server 0.4.0 or later
 
 ## Error Handling
 
 ```python
-from streamline import StreamlineClient, StreamlineError, TopicNotFoundError
+from streamline_sdk import StreamlineClient, StreamlineError
 
 async with StreamlineClient("localhost:9092") as client:
     try:
-        await client.produce("my-topic", b"key", b"value")
-    except TopicNotFoundError as e:
-        print(f"Topic not found: {e}")
-        print(f"Hint: {e.hint}")  # Actionable guidance
-    except StreamlineError as e:
-        if e.retryable:
-            print(f"Retryable error: {e}")
-        else:
-            print(f"Fatal error: {e}")
+        await client.producer.send("my-topic", key=b"key", value=b"value")
+    except StreamlineError as error:
+        print(error)
+        if error.hint:
+            print(f"Hint: {error.hint}")
 ```
 
 ## Configuration Reference
@@ -250,7 +309,7 @@ async with StreamlineClient("localhost:9092") as client:
 | Parameter | Default | Description |
 |---|---|---|
 | `bootstrap_servers` | `localhost:9092` | Comma-separated broker addresses |
-| `client_id` | auto-generated | Client identifier for server-side logging |
+| `client_id` | `streamline-python-client` | Client identifier for server-side logging |
 
 ### Producer
 
@@ -259,7 +318,7 @@ async with StreamlineClient("localhost:9092") as client:
 | `batch_size` | `16384` | Maximum batch size in bytes |
 | `linger_ms` | `0` | Time to wait before sending a batch (ms) |
 | `compression_type` | `none` | Compression: `none`, `gzip`, `snappy`, `lz4`, `zstd` |
-| `acks` | `1` | Acknowledgments: `0` (none), `1` (leader), `all` (all replicas) |
+| `acks` | `all` | Acknowledgments: `0` (none), `1` (leader), `all` (all replicas) |
 | `retries` | `3` | Retries on transient failures |
 | `enable_idempotence` | `False` | Enable exactly-once semantics |
 
@@ -280,24 +339,30 @@ async with StreamlineClient("localhost:9092") as client:
 |---|---|---|
 | `security_protocol` | `PLAINTEXT` | Protocol: `PLAINTEXT`, `SSL`, `SASL_PLAINTEXT`, `SASL_SSL` |
 | `sasl_mechanism` | — | SASL mechanism: `PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512` |
+| `sasl_username` | — | SASL username |
+| `sasl_password` | — | SASL password |
 | `ssl_cafile` | — | Path to CA certificate file |
+| `ssl_certfile` | — | Path to an mTLS client certificate |
+| `ssl_keyfile` | — | Path to the matching mTLS client key |
 
 ## Circuit Breaker
 
 Protect your application from cascading failures when the Streamline server is unresponsive:
 
 ```python
-from streamline.circuit_breaker import CircuitBreaker
+from streamline_sdk import CircuitBreaker, CircuitBreakerConfig
 
 cb = CircuitBreaker(
-    failure_threshold=5,       # Open after 5 consecutive failures
-    success_threshold=2,       # Close after 2 half-open successes
-    open_timeout=30.0,         # 30s before probing
+    CircuitBreakerConfig(
+        failure_threshold=5,
+        success_threshold=2,
+        open_timeout_s=30.0,
+    )
 )
 
 if cb.allow():
     try:
-        await producer.send("events", b"key", b"value")
+        await client.producer.send("events", key=b"key", value=b"value")
         cb.record_success()
     except Exception:
         cb.record_failure()
@@ -343,9 +408,12 @@ for hit in results:
 Verify cryptographic provenance attestations attached to records by data contracts.
 
 ```python
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
 from streamline_sdk import StreamlineVerifier
 
-verifier = StreamlineVerifier(public_key_bytes)
+public_key = Ed25519PublicKey.from_public_bytes(public_key_bytes)
+verifier = StreamlineVerifier(public_key)
 result = verifier.verify(record)
 print(f"Verified: {result.verified}, Producer: {result.producer_id}")
 ```
@@ -357,9 +425,18 @@ Use Streamline as persistent memory for AI agents via the MCP protocol.
 ```python
 from streamline_sdk import MemoryClient
 
-memory = MemoryClient("http://localhost:9094/mcp/v1")
-await memory.remember("user prefers dark mode", tags=["preferences"])
-results = await memory.recall("user preferences", k=5)
+memory = MemoryClient("http://localhost:9094")
+await memory.remember(
+    agent_id="assistant",
+    kind="observation",
+    content="user prefers dark mode",
+    tags=["preferences"],
+)
+results = await memory.recall(
+    agent_id="assistant",
+    query="user preferences",
+    k=5,
+)
 ```
 
 ### Branched Streams
@@ -367,10 +444,12 @@ results = await memory.recall("user preferences", k=5)
 Create topic branches for replay, A/B testing, or counterfactual analysis.
 
 ```python
-branch = await admin.create_branch("events", "experiment-v2")
-# Consume from the branch independently
-async for msg in consumer.consume(branch.topic):
-    process(msg)
+from streamline_sdk import BranchAdminClient
+
+branches = BranchAdminClient("http://localhost:9094")
+branch = await branches.create("events", "experiment-v2")
+await branches.append(branch.id, role="user", text="replay this event")
+messages = await branches.messages(branch.id)
 ```
 
 ## Contributing
@@ -389,4 +468,3 @@ To report a security vulnerability, please email **security@streamline.dev**.
 Do **not** open a public issue.
 
 See the [Security Policy](https://github.com/streamlinelabs/streamline/blob/main/SECURITY.md) for details.
-

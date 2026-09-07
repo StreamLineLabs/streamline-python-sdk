@@ -16,16 +16,19 @@ import os
 from streamline_sdk import StreamlineClient
 
 
-async def sasl_plain_example():
+async def sasl_plain_example() -> None:
     """Connect with SASL/PLAIN authentication."""
     print("SASL/PLAIN Authentication")
     print("-" * 40)
 
     client = StreamlineClient(
-        bootstrap_servers=os.environ.get("STREAMLINE_BOOTSTRAP_SERVERS", "localhost:9092"),
+        bootstrap_servers=os.environ.get(
+            "STREAMLINE_BOOTSTRAP_SERVERS", "localhost:9092"
+        ),
+        security_protocol="SASL_PLAINTEXT",
         sasl_mechanism="PLAIN",
-        sasl_plain_username=os.environ.get("SASL_USERNAME", "admin"),
-        sasl_plain_password=os.environ.get("SASL_PASSWORD", "admin-secret"),
+        sasl_username=os.environ.get("SASL_USERNAME", "admin"),
+        sasl_password=os.environ.get("SASL_PASSWORD", "admin-secret"),
     )
 
     async with client:
@@ -41,16 +44,19 @@ async def sasl_plain_example():
     print("  Disconnected.\n")
 
 
-async def sasl_scram_example():
+async def sasl_scram_example() -> None:
     """Connect with SASL/SCRAM-SHA-256 authentication."""
     print("SASL/SCRAM-SHA-256 Authentication")
     print("-" * 40)
 
     client = StreamlineClient(
-        bootstrap_servers=os.environ.get("STREAMLINE_BOOTSTRAP_SERVERS", "localhost:9092"),
+        bootstrap_servers=os.environ.get(
+            "STREAMLINE_BOOTSTRAP_SERVERS", "localhost:9092"
+        ),
+        security_protocol="SASL_PLAINTEXT",
         sasl_mechanism="SCRAM-SHA-256",
-        sasl_plain_username=os.environ.get("SASL_USERNAME", "admin"),
-        sasl_plain_password=os.environ.get("SASL_PASSWORD", "admin-secret"),
+        sasl_username=os.environ.get("SASL_USERNAME", "admin"),
+        sasl_password=os.environ.get("SASL_PASSWORD", "admin-secret"),
     )
 
     async with client:
@@ -60,7 +66,7 @@ async def sasl_scram_example():
     print("  Disconnected.\n")
 
 
-async def tls_example():
+async def tls_example() -> None:
     """Connect with TLS encryption."""
     print("TLS Encrypted Connection")
     print("-" * 40)
@@ -71,6 +77,7 @@ async def tls_example():
 
     client = StreamlineClient(
         bootstrap_servers=os.environ.get("STREAMLINE_TLS_BOOTSTRAP", "localhost:9093"),
+        security_protocol="SSL",
         ssl_cafile=ca_path,
         ssl_certfile=client_cert,
         ssl_keyfile=client_key,
@@ -85,7 +92,7 @@ async def tls_example():
     print("  Disconnected.\n")
 
 
-async def main():
+async def main() -> None:
     print("Streamline Security Examples")
     print("=" * 40)
     print()

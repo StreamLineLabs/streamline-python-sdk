@@ -23,7 +23,7 @@ import base64
 import json
 import time
 from dataclasses import dataclass
-from typing import Any, Optional, Union
+from typing import Any
 
 try:
     import aiohttp
@@ -54,7 +54,7 @@ class SignedAttestation:
     header_value: str
 
     @classmethod
-    def from_json(cls, data: dict[str, Any]) -> "SignedAttestation":
+    def from_json(cls, data: dict[str, Any]) -> SignedAttestation:
         return cls(
             key_id=str(data["key_id"]),
             algorithm=str(data["algorithm"]),
@@ -67,7 +67,7 @@ class SignedAttestation:
 
 
 def _encode_value(
-    value: Union[bytes, bytearray, str],
+    value: bytes | bytearray | str,
 ) -> tuple[str, str]:
     """Return (json_field_name, json_field_value) for the value."""
     if isinstance(value, (bytes, bytearray)):
@@ -104,10 +104,10 @@ class Attestor:
         topic: str,
         partition: int,
         offset: int,
-        value: Union[bytes, bytearray, str],
+        value: bytes | bytearray | str,
         schema_id: int = 0,
-        timestamp_ms: Optional[int] = None,
-        key_id: Optional[str] = None,
+        timestamp_ms: int | None = None,
+        key_id: str | None = None,
     ) -> SignedAttestation:
         """Sign an attestation envelope for a record."""
         ts = timestamp_ms if timestamp_ms is not None else int(time.time() * 1000)
@@ -135,12 +135,12 @@ class Attestor:
         topic: str,
         partition: int,
         offset: int,
-        value: Union[bytes, bytearray, str],
+        value: bytes | bytearray | str,
         timestamp_ms: int,
         signature_b64: str,
         schema_id: int = 0,
-        key_id: Optional[str] = None,
-        algorithm: Optional[str] = None,
+        key_id: str | None = None,
+        algorithm: str | None = None,
     ) -> bool:
         """Verify a previously-issued attestation. Returns ``True`` on success."""
         body: dict[str, Any] = {
@@ -180,8 +180,8 @@ class Attestor:
                             payload = {"raw": text}
                     return resp.status, payload
         else:
-            import urllib.request
             import urllib.error
+            import urllib.request
 
             data = json.dumps(body).encode("utf-8")
             req = urllib.request.Request(

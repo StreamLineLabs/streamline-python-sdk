@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import time
 import threading
-from dataclasses import dataclass, field
+import time
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -47,7 +47,9 @@ class ClientMetrics:
         self._consume_latency_count = 0
         self._start_time = time.monotonic()
 
-    def record_produce(self, message_count: int, nbytes: int, latency_ms: float) -> None:
+    def record_produce(
+        self, message_count: int, nbytes: int, latency_ms: float
+    ) -> None:
         """Record a successful produce operation."""
         with self._lock:
             self._messages_produced += message_count
@@ -55,7 +57,9 @@ class ClientMetrics:
             self._produce_latency_sum += latency_ms
             self._produce_latency_count += 1
 
-    def record_consume(self, message_count: int, nbytes: int, latency_ms: float) -> None:
+    def record_consume(
+        self, message_count: int, nbytes: int, latency_ms: float
+    ) -> None:
         """Record a successful consume operation."""
         with self._lock:
             self._messages_consumed += message_count

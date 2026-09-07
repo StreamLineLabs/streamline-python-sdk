@@ -4,11 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "streamline-sdk"
-version = "0.3.0"
+version = "0.4.0"
 description = "Official Python SDK for Streamline - The Redis of Streaming"
 readme = "README.md"
 license = "Apache-2.0"
-requires-python = ">=3.9"
+requires-python = ">=3.9,<3.15"
 authors = [
     { name = "Streamline Authors", email = "team@streamlinelabs.dev" }
 ]
@@ -23,17 +23,25 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Framework :: AsyncIO",
 ]
 dependencies = [
     "aiokafka>=0.10.0",
+    # Required at package-import time: streamline_sdk/__init__.py re-exports
+    # StreamlineVerifier from streamline_sdk.verifier, which imports cryptography.
+    "cryptography>=42.0.0",
 ]
 
 [project.optional-dependencies]
 schema = [
     "avro-python3>=1.10.0",
     "jsonschema>=4.0.0",
+]
+search = [
+    "aiohttp>=3.9.0",
 ]
 telemetry = [
     "opentelemetry-api>=1.20.0",
@@ -44,14 +52,22 @@ dev = [
     "pytest-asyncio>=0.23.0",
     "pytest-benchmark>=4.0.0",
     "pytest-cov>=5.0.0",
-    "mypy>=1.8.0",
+    "pytest-timeout>=2.3.0",
+    "build>=1.2.0",
+    "twine>=5.0.0",
+    # mypy 2.x refuses `python_version = "3.9"`, which this package still
+    # targets via `requires-python = ">=3.9"`.
+    "mypy>=1.8.0,<2.0",
     "ruff>=0.4.0",
     "opentelemetry-api>=1.20.0",
+    # Unit tests patch ``aiohttp.ClientSession`` on the optional HTTP paths,
+    # so the package must be importable in the dev environment.
+    "aiohttp>=3.9.0",
 ]
 
 [project.urls]
 Homepage = "https://github.com/streamlinelabs/streamline-python-sdk"
-Documentation = "https://github.com/streamlinelabs/streamline-python-sdk/tree/main/sdks/python-sdk"
+Documentation = "https://github.com/streamlinelabs/streamline-python-sdk/tree/main/docs"
 Repository = "https://github.com/streamlinelabs/streamline-python-sdk"
 Issues = "https://github.com/streamlinelabs/streamline-python-sdk/issues"
 
@@ -65,6 +81,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py", "benchmark_*.py"]
 markers = [
     "integration: marks tests as integration tests (require running Streamline server)",
+    "conformance: marks tests as conformance-suite tests (require running Streamline server)",
 ]
 
 [tool.mypy]
@@ -72,9 +89,27 @@ python_version = "3.9"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
+# Scope of the `streamline-sdk` distribution. `testcontainers/` is a separate
+# distribution (`testcontainers-streamline`) with its own pyproject.toml and
+# dependencies, so it is type-checked by its own tooling.
+files = ["streamline_sdk", "tests", "benchmarks", "examples", "scripts"]
+exclude = "^testcontainers/"
+
+[[tool.mypy.overrides]]
+# Recent pytest releases use `match` statements, which mypy cannot parse while
+# `python_version = "3.9"` is in effect. pytest's own types are not needed to
+# type-check this package.
+module = ["pytest"]
+follow_imports = "skip"
 
 [tool.ruff]
 target-version = "py39"
 line-length = 88
+
+[tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
 
+[tool.ruff.lint.per-file-ignores]
+# Conformance test IDs are part of the cross-SDK spec (C01, T01, P01, ...)
+# and are intentionally kept verbatim in the test function names.
+"tests/test_conformance.py" = ["N802"]

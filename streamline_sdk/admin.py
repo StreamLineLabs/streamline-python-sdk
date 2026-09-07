@@ -2,56 +2,18 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from aiokafka.admin import AIOKafkaAdminClient, NewTopic
 from aiokafka.errors import KafkaError
 
+from ._admin_http import _AdminHttpTransport
+from ._security import build_security_kwargs
+from ._url import append_query, encode_path_segment
 from .exceptions import TopicError
+from .types import ConsumerGroupInfo, GroupMember, TopicConfig, TopicInfo
 from .validation import validate_topic_name
-
-try:
-    import aiohttp
-    HAS_AIOHTTP = True
-except ImportError:
-    HAS_AIOHTTP = False
-
-
-@dataclass
-class TopicConfig:
-    """Configuration for creating a topic.
-
-    Attributes:
-        name: Topic name.
-        num_partitions: Number of partitions.
-        replication_factor: Number of replicas.
-        config: Topic configuration (e.g., retention.ms).
-    """
-
-    name: str
-    num_partitions: int = 1
-    replication_factor: int = 1
-    config: Dict[str, str] = field(default_factory=dict)
-
-
-@dataclass
-class TopicInfo:
-    """Information about a topic.
-
-    Attributes:
-        name: Topic name.
-        partitions: Number of partitions.
-        replication_factor: Replication factor.
-        internal: Whether this is an internal topic.
-    """
-
-    name: str
-    partitions: int
-    replication_factor: int
-    internal: bool = False
 
 
 @dataclass
@@ -67,40 +29,8 @@ class PartitionInfo:
 
     id: int
     leader: int
-    replicas: List[int]
-    isr: List[int]
-
-
-@dataclass
-class ConsumerGroupInfo:
-    """Information about a consumer group.
-
-    Attributes:
-        group_id: Consumer group ID.
-        state: Group state (e.g., Stable, Empty).
-        protocol: Group protocol.
-        members: List of group members.
-    """
-
-    group_id: str
-    state: str
-    protocol: str
-    members: List["GroupMember"]
-
-
-@dataclass
-class GroupMember:
-    """Information about a consumer group member.
-
-    Attributes:
-        member_id: Member ID.
-        client_id: Client ID.
-        host: Member host.
-    """
-
-    member_id: str
-    client_id: str
-    host: str
+    replicas: list[int]
+    isr: list[int]
 
 
 @dataclass
@@ -116,7 +46,7 @@ class ClusterInfo:
 
     cluster_id: str = ""
     broker_id: int = 0
-    brokers: List["BrokerInfo"] = field(default_factory=list)
+    brokers: list[BrokerInfo] = field(default_factory=list)
     controller: int = -1
 
 
@@ -134,7 +64,7 @@ class BrokerInfo:
     id: int = 0
     host: str = ""
     port: int = 9092
-    rack: Optional[str] = None
+    rack: str | None = None
 
 
 @dataclass
@@ -167,7 +97,7 @@ class ConsumerGroupLag:
     """
 
     group_id: str = ""
-    partitions: List[ConsumerLag] = field(default_factory=list)
+    partitions: list[ConsumerLag] = field(default_factory=list)
     total_lag: int = 0
 
 
@@ -185,11 +115,11 @@ class InspectedMessage:
     """
 
     offset: int = 0
-    key: Optional[str] = None
+    key: str | None = None
     value: str = ""
     timestamp: int = 0
     partition: int = 0
-    headers: Dict[str, str] = field(default_factory=dict)
+    headers: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -205,7 +135,7 @@ class MetricPoint:
 
     name: str = ""
     value: float = 0.0
-    labels: Dict[str, str] = field(default_factory=dict)
+    labels: dict[str, str] = field(default_factory=dict)
     timestamp: int = 0
 
 
@@ -231,7 +161,9 @@ class Admin:
 
     Example:
         async with client.admin as admin:
-            await admin.create_topic(TopicConfig(name="my-topic", partitions=3))
+            await admin.create_topic(
+                TopicConfig(name="my-topic", num_partitions=3)
+            )
     """
 
     def __init__(self, client_config: Any):
@@ -241,22 +173,16 @@ class Admin:
             client_config: Client configuration.
         """
         self._client_config = client_config
-        self._admin: Optional[AIOKafkaAdminClient] = None
+        self._admin: AIOKafkaAdminClient | None = None
         self._started = False
+        self._http = _AdminHttpTransport(lambda: self._client_config.http_url)
 
     async def start(self) -> None:
         """Start the admin client."""
         if self._started:
             return
 
-        security_kwargs = {}
-        if self._client_config.security_protocol != "PLAINTEXT":
-            security_kwargs["security_protocol"] = self._client_config.security_protocol
-
-        if self._client_config.sasl_mechanism:
-            security_kwargs["sasl_mechanism"] = self._client_config.sasl_mechanism
-            security_kwargs["sasl_plain_username"] = self._client_config.sasl_username
-            security_kwargs["sasl_plain_password"] = self._client_config.sasl_password
+        security_kwargs = build_security_kwargs(self._client_config)
 
         self._admin = AIOKafkaAdminClient(
             bootstrap_servers=self._client_config.bootstrap_servers,
@@ -303,7 +229,7 @@ class Admin:
         except KafkaError as e:
             raise TopicError(f"Failed to create topic '{config.name}': {e}") from e
 
-    async def create_topics(self, configs: List[TopicConfig]) -> None:
+    async def create_topics(self, configs: list[TopicConfig]) -> None:
         """Create multiple topics.
 
         Args:
@@ -346,7 +272,7 @@ class Admin:
         except KafkaError as e:
             raise TopicError(f"Failed to delete topic '{name}': {e}") from e
 
-    async def delete_topics(self, names: List[str]) -> None:
+    async def delete_topics(self, names: list[str]) -> None:
         """Delete multiple topics.
 
         Args:
@@ -363,7 +289,7 @@ class Admin:
         except KafkaError as e:
             raise TopicError(f"Failed to delete topics: {e}") from e
 
-    async def list_topics(self) -> List[str]:
+    async def list_topics(self) -> list[str]:
         """List all topics via the HTTP REST API.
 
         Returns:
@@ -373,7 +299,7 @@ class Admin:
             raise TopicError("Admin client not started")
 
         try:
-            data = await self._http_get("/v1/topics")
+            data = await self._http.get("/v1/topics")
             return [t["name"] for t in data if not t.get("name", "").startswith("__")]
         except TopicError:
             raise
@@ -393,7 +319,7 @@ class Admin:
             raise TopicError("Admin client not started")
 
         try:
-            data = await self._http_get(f"/v1/topics/{name}")
+            data = await self._http.get(f"/v1/topics/{encode_path_segment(name)}")
             return TopicInfo(
                 name=data.get("name", name),
                 partitions=data.get("partitions", 0),
@@ -405,74 +331,7 @@ class Admin:
         except Exception as e:
             raise TopicError(f"Failed to describe topic '{name}': {e}") from e
 
-    async def _http_get(self, path: str) -> Any:
-        """Make an HTTP GET request to the Streamline REST API."""
-        http_url = self._client_config.http_url
-        url = f"{http_url}{path}"
-
-        if HAS_AIOHTTP:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                    if resp.status == 404:
-                        raise TopicError(f"Not found: {path}")
-                    if resp.status != 200:
-                        text = await resp.text()
-                        raise TopicError(f"HTTP {resp.status}: {text}")
-                    return await resp.json()
-        else:
-            import urllib.request
-            req = urllib.request.Request(url)
-            def _sync_get():
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    return json.loads(resp.read())
-            return await asyncio.to_thread(_sync_get)
-
-    async def _http_post(self, path: str, body: Any) -> Any:
-        """Make an HTTP POST request to the Streamline REST API."""
-        http_url = self._client_config.http_url
-        url = f"{http_url}{path}"
-
-        if HAS_AIOHTTP:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=body, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                    if resp.status == 404:
-                        raise TopicError(f"Not found: {path}")
-                    if resp.status not in (200, 201):
-                        text = await resp.text()
-                        raise TopicError(f"HTTP {resp.status}: {text}")
-                    return await resp.json()
-        else:
-            import urllib.request
-            payload = json.dumps(body).encode("utf-8")
-            req = urllib.request.Request(url, data=payload, method="POST")
-            req.add_header("Content-Type", "application/json")
-            def _sync_post():
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    return json.loads(resp.read())
-            return await asyncio.to_thread(_sync_post)
-
-    async def _http_delete(self, path: str) -> None:
-        """Make an HTTP DELETE request to the Streamline REST API."""
-        http_url = self._client_config.http_url
-        url = f"{http_url}{path}"
-
-        if HAS_AIOHTTP:
-            async with aiohttp.ClientSession() as session:
-                async with session.delete(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                    if resp.status == 404:
-                        raise TopicError(f"Not found: {path}")
-                    if resp.status >= 300:
-                        text = await resp.text()
-                        raise TopicError(f"HTTP {resp.status}: {text}")
-        else:
-            import urllib.request
-            req = urllib.request.Request(url, method="DELETE")
-            def _sync_delete():
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    pass
-            await asyncio.to_thread(_sync_delete)
-
-    async def list_consumer_groups(self) -> List[str]:
+    async def list_consumer_groups(self) -> list[str]:
         """List all consumer groups.
 
         Returns:
@@ -534,7 +393,7 @@ class Admin:
         Returns:
             ClusterInfo with broker details.
         """
-        data = await self._http_get("/v1/cluster")
+        data = await self._http.get("/v1/cluster")
         brokers = [
             BrokerInfo(
                 id=b.get("id", 0),
@@ -560,7 +419,9 @@ class Admin:
         Returns:
             ConsumerGroupLag with per-partition lag.
         """
-        data = await self._http_get(f"/v1/consumer-groups/{group_id}/lag")
+        data = await self._http.get(
+            f"/v1/consumer-groups/{encode_path_segment(group_id)}/lag"
+        )
         partitions = [
             ConsumerLag(
                 topic=p.get("topic", ""),
@@ -589,7 +450,10 @@ class Admin:
         Returns:
             ConsumerGroupLag scoped to the given topic.
         """
-        data = await self._http_get(f"/v1/consumer-groups/{group_id}/lag/{topic}")
+        data = await self._http.get(
+            "/v1/consumer-groups/"
+            f"{encode_path_segment(group_id)}/lag/{encode_path_segment(topic)}"
+        )
         partitions = [
             ConsumerLag(
                 topic=p.get("topic", topic),
@@ -610,9 +474,9 @@ class Admin:
         self,
         topic: str,
         partition: int = 0,
-        offset: Optional[int] = None,
+        offset: int | None = None,
         limit: int = 20,
-    ) -> List[InspectedMessage]:
+    ) -> list[InspectedMessage]:
         """Browse messages from a topic partition.
 
         Args:
@@ -624,10 +488,14 @@ class Admin:
         Returns:
             List of inspected messages.
         """
-        path = f"/v1/inspect/{topic}?partition={partition}&limit={limit}"
+        params = {"partition": partition, "limit": limit}
         if offset is not None:
-            path += f"&offset={offset}"
-        data = await self._http_get(path)
+            params["offset"] = offset
+        path = append_query(
+            f"/v1/inspect/{encode_path_segment(topic)}",
+            params,
+        )
+        data = await self._http.get(path)
         return [
             InspectedMessage(
                 offset=m.get("offset", 0),
@@ -642,7 +510,7 @@ class Admin:
 
     async def latest_messages(
         self, topic: str, count: int = 10
-    ) -> List[InspectedMessage]:
+    ) -> list[InspectedMessage]:
         """Get the latest messages from a topic.
 
         Args:
@@ -652,7 +520,12 @@ class Admin:
         Returns:
             List of latest messages.
         """
-        data = await self._http_get(f"/v1/inspect/{topic}/latest?count={count}")
+        data = await self._http.get(
+            append_query(
+                f"/v1/inspect/{encode_path_segment(topic)}/latest",
+                {"count": count},
+            )
+        )
         return [
             InspectedMessage(
                 offset=m.get("offset", 0),
@@ -665,13 +538,13 @@ class Admin:
             for m in data
         ]
 
-    async def metrics_history(self) -> List[MetricPoint]:
+    async def metrics_history(self) -> list[MetricPoint]:
         """Get metrics history from the server.
 
         Returns:
             List of metric data points.
         """
-        data = await self._http_get("/v1/metrics/history")
+        data = await self._http.get("/v1/metrics/history")
         return [
             MetricPoint(
                 name=m.get("name", ""),
@@ -683,8 +556,8 @@ class Admin:
         ]
 
     async def create_branch(
-        self, name: str, base_topic: str, base_offsets: Optional[Dict[int, int]] = None
-    ) -> "BranchInfo":
+        self, name: str, base_topic: str, base_offsets: dict[int, int] | None = None
+    ) -> BranchInfo:
         """Create a copy-on-write branch of a topic (M5).
 
         Args:
@@ -695,10 +568,10 @@ class Admin:
         Returns:
             BranchInfo for the newly created branch.
         """
-        body: Dict[str, Any] = {"name": name, "base_topic": base_topic}
+        body: dict[str, Any] = {"name": name, "base_topic": base_topic}
         if base_offsets:
             body["base_offsets"] = base_offsets
-        data = await self._http_post("/v1/branches", body)
+        data = await self._http.post("/v1/branches", body)
         return BranchInfo(
             name=data.get("name", name),
             base_topic=data.get("base_topic", base_topic),
@@ -706,7 +579,7 @@ class Admin:
             created_at=int(data.get("created_at", 0)),
         )
 
-    async def list_branches(self, topic: Optional[str] = None) -> List["BranchInfo"]:
+    async def list_branches(self, topic: str | None = None) -> list[BranchInfo]:
         """List copy-on-write topic branches (M5).
 
         Args:
@@ -717,8 +590,8 @@ class Admin:
         """
         path = "/v1/branches"
         if topic:
-            path += f"?topic={topic}"
-        data = await self._http_get(path)
+            path = append_query(path, {"topic": topic})
+        data = await self._http.get(path)
         items = data if isinstance(data, list) else data.get("items", [])
         return [
             BranchInfo(
@@ -736,9 +609,9 @@ class Admin:
         Args:
             branch_id: Branch identifier.
         """
-        await self._http_delete(f"/v1/branches/{branch_id}")
+        await self._http.delete(f"/v1/branches/{encode_path_segment(branch_id)}")
 
-    async def __aenter__(self) -> "Admin":
+    async def __aenter__(self) -> Admin:
         """Enter async context manager."""
         await self.start()
         return self
@@ -746,8 +619,3 @@ class Admin:
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         """Exit async context manager."""
         await self.close()
-# correct offset reset behavior on new consumer group
-# resolve event loop conflict in nested async calls
-
-# add async context manager for producer lifecycle
-# extract connection pool into dedicated module

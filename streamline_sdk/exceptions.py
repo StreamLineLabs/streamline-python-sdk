@@ -1,5 +1,7 @@
 """Exceptions for the Streamline SDK."""
 
+from __future__ import annotations
+
 
 class StreamlineError(Exception):
     """Base exception for Streamline SDK errors."""

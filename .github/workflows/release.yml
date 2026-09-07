@@ -1,29 +1,262 @@
 name: Release
+
 on:
   push:
-    tags: ['v*']
-permissions:
-  contents: write
+    tags:
+      - "v*"
+
+permissions: {}
+
+# A release must never run concurrently with another release: PyPI trusted
+# publishing and GitHub release creation are not safe to race, and queuing
+# (rather than cancelling an in-flight publish) avoids ever aborting a
+# partially-completed publish/attest/release sequence.
+concurrency:
+  group: pypi-release
+  cancel-in-progress: false
+
 jobs:
-  publish:
+  build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-      - run: pip install build twine
-      - run: python -m build
-      - run: twine upload dist/*
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-      - name: Generate SBOM
+          python-version: "3.14"
+          cache: pip
+
+      - name: Install release tooling
+        # Upgrade pip first: the clean SBOM environment below relies on
+        # `pip --python <target>` (added in pip 22.3) to install the wheel
+        # into a *different* interpreter without needing pip installed
+        # there at all.
         run: |
-          pip install cyclonedx-bom
-          cyclonedx-py environment --output-format json -o sbom.cdx.json 2>/dev/null || true
+          python -m pip install --upgrade pip
+          pip install build twine "cyclonedx-bom>=7,<8"
+
+      - name: Verify tag matches package version
+        run: >-
+          python -c "import os, pathlib, tomllib;
+          version=tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'];
+          tag=os.environ['GITHUB_REF_NAME'].removeprefix('v');
+          raise SystemExit(0 if tag == version else
+          f'tag {tag!r} does not match package version {version!r}')"
+
+      - name: Build distribution
+        run: python -m build
+
+      - name: Validate distribution metadata
+        run: twine check dist/*
+
+      - name: Create a clean runtime-only environment for SBOM generation
+        # Deliberately a separate venv from the one used above to build/
+        # check the distribution: that environment has `build`, `twine`,
+        # and `cyclonedx-bom` installed, and `python -m build` never
+        # installs the package's own runtime dependencies into it (it
+        # builds in an isolated PEP 517 backend environment instead). If
+        # we scanned the tooling environment directly, the resulting SBOM
+        # would list build tooling (build/twine/cyclonedx-bom and their
+        # transitive dependencies) while omitting the wheel's actual
+        # runtime dependencies (aiokafka, cryptography) entirely — exactly
+        # backwards from what an SBOM for the shipped artifact should say.
+        #
+        # `--without-pip` means this venv never has its own pip installed
+        # at all, so pip itself (which every ordinary `python -m venv`
+        # seeds) cannot leak into the SBOM as a component either: even
+        # `pip install --upgrade pip` run *inside* the target venv would
+        # otherwise make pip a discoverable, scannable package there. The
+        # wheel is instead installed from the outside using the tooling
+        # venv's own pip and its `--python` flag, which installs into the
+        # target interpreter's site-packages without requiring (or
+        # installing) pip inside that environment.
+        run: |
+          python -m venv --without-pip sbom-env
+          pip --python "$(pwd)/sbom-env/bin/python" install --quiet dist/*.whl
+
+      - name: Generate CycloneDX SBOM from the clean runtime environment
+        run: >-
+          cyclonedx-py environment --pyproject pyproject.toml
+          --mc-type library --output-reproducible
+          --output-format JSON --output-file sbom.cdx.json
+          "$(pwd)/sbom-env"
+
+      - name: Verify SBOM excludes build tooling and includes runtime deps
+        # Defense in depth: even though the environment above is
+        # constructed to be clean, explicitly parse the generated SBOM and
+        # hard-fail the release if pip/setuptools/wheel/build/twine/
+        # cyclonedx ever show up as components, or if the SDK's actual
+        # runtime dependencies (aiokafka, cryptography) are missing.
+        run: python scripts/check_sbom.py sbom.cdx.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: |
+            dist/*
+            sbom.cdx.json
+          if-no-files-found: error
+          retention-days: 14
+
+  conformance:
+    # Live conformance against an explicit, immutable Streamline server
+    # image is a hard prerequisite for publishing: it does not depend on
+    # `build`'s output (it runs the conformance suite from the checkout,
+    # against a live server), so it can run in parallel with `build`.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require an explicit, digest-pinned conformance server image
+        # Hard-block the release rather than silently skipping: releasing
+        # without ever having run the required conformance suite against a
+        # real server is exactly the failure mode this job exists to
+        # prevent. A mutable tag (":latest", ":0.4.0", ...) is rejected
+        # because it is not reproducible and this workflow cannot verify
+        # in advance that a given tag exists or contains a working
+        # Streamline server.
+        run: |
+          image="${{ vars.STREAMLINE_CONFORMANCE_IMAGE }}"
+          if [ -z "$image" ]; then
+            echo "::error::The STREAMLINE_CONFORMANCE_IMAGE repository variable is not set." >&2
+            echo "::error::Release publication requires live conformance against an explicit," >&2
+            echo "::error::digest-pinned Streamline server image, e.g.:" >&2
+            echo "::error::  ghcr.io/streamlinelabs/streamline@sha256:<64-hex-digest>" >&2
+            echo "::error::Set STREAMLINE_CONFORMANCE_IMAGE (repository or organization" >&2
+            echo "::error::variable) to a digest you have verified is reachable and runs a" >&2
+            echo "::error::working Streamline server before releasing." >&2
+            exit 1
+          fi
+          if ! [[ "$image" =~ ^[^[:space:]@:]+(:[0-9]+)?(/[^[:space:]@:]+)+@sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::STREAMLINE_CONFORMANCE_IMAGE ('$image') is not an immutable digest reference." >&2
+            echo "::error::Use 'registry/repo@sha256:<64 lowercase hex characters>'." >&2
+            echo "::error::Mutable tags, tag-plus-digest aliases, malformed digests, and whitespace are rejected." >&2
+            exit 1
+          fi
+          echo "image=$image" >> "$GITHUB_ENV"
+
+      - name: Start the Streamline server (digest-pinned image)
+        run: |
+          docker run -d --name streamline-conformance \
+            -p 9092:9092 -p 9094:9094 \
+            "$image"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - run: pip install -e ".[dev]"
+
+      - name: Wait for Streamline to become healthy
+        run: |
+          ready=0
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:9094/health; then
+              ready=1
+              break
+            fi
+            echo "Waiting for Streamline... ($i/30)"
+            sleep 2
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "::error::The digest-pinned Streamline image did not become healthy." >&2
+            exit 1
+          fi
+
+      - name: Run required conformance suite
+        # STREAMLINE_REQUIRE_CONFORMANCE=1 enables the executed-test-count
+        # guard in tests/conftest.py: the session fails if zero conformance
+        # tests reach their call phase (e.g. because every test was gated/
+        # skipped), rather than a misconfigured or empty run silently
+        # reporting success.
+        run: >-
+          pytest tests/conformance -v -m conformance --strict-markers
+          --timeout=60 -rs
+        env:
+          CONFORMANCE: '1'
+          STREAMLINE_REQUIRE_CONFORMANCE: '1'
+          STREAMLINE_BOOTSTRAP_SERVERS: localhost:9092
+          STREAMLINE_BOOTSTRAP: localhost:9092
+          STREAMLINE_HTTP_URL: http://localhost:9094
+
+      - name: Show Streamline server logs on failure
+        if: failure()
+        continue-on-error: true
+        run: docker logs streamline-conformance
+
+      - name: Stop Streamline server
+        if: always()
+        run: |
+          if docker ps -a --format '{{.Names}}' | grep -Fxq streamline-conformance; then
+            docker rm -f streamline-conformance
+          fi
+
+  publish:
+    # Publication depends on both the required live conformance run and a
+    # successful build-provenance/SBOM attestation, and (via the
+    # `concurrency` group above) never runs concurrently with another
+    # release's publish step.
+    needs: [build, conformance, attest]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/streamline-sdk
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+
+      - name: Publish with PyPI trusted publishing
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+
+  attest:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+
+      - name: Attest distribution provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*
+
+      - name: Attest distribution SBOM
+        uses: actions/attest-sbom@v2
+        with:
+          subject-path: dist/*
+          sbom-path: sbom.cdx.json
+
+  github-release:
+    needs:
+      - publish
+      - attest
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          fail_on_unmatched_files: true
           files: |
+            dist/*
             sbom.cdx.json

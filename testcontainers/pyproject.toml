@@ -7,23 +7,24 @@ name = "testcontainers-streamline"
 version = "0.2.0"
 description = "Testcontainers module for Streamline - The Redis of Streaming"
 readme = "README.md"
-license = {text = "Apache-2.0"}
+license = "Apache-2.0"
 authors = [
-    {name = "Jose David Baena", email = "josedab@users.noreply.github.com"}
+    { name = "Streamline Authors", email = "team@streamlinelabs.dev" }
 ]
 keywords = ["streamline", "kafka", "testcontainers", "testing", "docker"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Testing",
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.9,<3.15"
 dependencies = [
     "testcontainers>=3.7.0",
 ]
@@ -33,11 +34,13 @@ dev = [
     "pytest>=7.0.0",
     "kafka-python>=2.0.0",
     "requests>=2.28.0",
+    "build>=1.2.0",
+    "twine>=5.0.0",
 ]
 
 [project.urls]
 Homepage = "https://github.com/streamlinelabs/streamline-python-sdk"
-Documentation = "https://github.com/streamlinelabs/streamline-python-sdk/tree/main/sdks/testcontainers-python"
+Documentation = "https://github.com/streamlinelabs/streamline-python-sdk/tree/main/testcontainers"
 Repository = "https://github.com/streamlinelabs/streamline-python-sdk"
 Issues = "https://github.com/streamlinelabs/streamline-python-sdk/issues"
 

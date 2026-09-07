@@ -5,15 +5,20 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Optional, Dict, List, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from aiokafka import AIOKafkaProducer
 from aiokafka.errors import KafkaError
 
+from ._security import build_security_kwargs
 from .circuit_breaker import CircuitBreakerOpen
 from .exceptions import (
-    ProducerError,
     ConnectionError as _ConnectionError,
+)
+from .exceptions import (
+    ProducerError,
+)
+from .exceptions import (
     TimeoutError as _TimeoutError,
 )
 from .validation import validate_topic_name
@@ -22,7 +27,6 @@ if TYPE_CHECKING:
     from .circuit_breaker import CircuitBreaker
 
 _RETRYABLE_EXCEPTIONS = (_ConnectionError, _TimeoutError, OSError, asyncio.TimeoutError)
-
 
 
 @dataclass
@@ -39,11 +43,11 @@ class ProducerRecord:
     """
 
     topic: str
-    value: Optional[bytes] = None
-    key: Optional[bytes] = None
+    value: bytes | None = None
+    key: bytes | None = None
     partition: int = -1
-    timestamp_ms: Optional[int] = None
-    headers: Optional[Dict[str, bytes]] = None
+    timestamp_ms: int | None = None
+    headers: dict[str, bytes] | None = None
 
 
 @dataclass
@@ -73,6 +77,18 @@ class Producer:
     Example:
         async with client.producer as producer:
             await producer.send("topic", value=b"message")
+
+    .. important::
+        ``begin_transaction`` / ``commit_transaction`` / ``abort_transaction``
+        implement **client-buffered, non-atomic pseudo-transactions**. The
+        Streamline broker (via the Kafka wire protocol used here) provides no
+        transactional coordinator, so "committing" a transaction means the
+        client buffers ``send``/``send_record`` calls locally and then
+        replays them as ordinary, independent produce requests. There is
+        **no all-or-nothing guarantee**: if the broker connection fails
+        partway through a commit, some buffered messages may have already
+        been delivered while later ones are not. Do not rely on this
+        mechanism for cross-message atomicity or exactly-once semantics.
     """
 
     def __init__(
@@ -80,8 +96,8 @@ class Producer:
         client_config: Any,
         producer_config: Any,
         *,
-        circuit_breaker: Optional[CircuitBreaker] = None,
-        telemetry: Optional[Any] = None,
+        circuit_breaker: CircuitBreaker | None = None,
+        telemetry: Any | None = None,
     ):
         """Initialize the producer.
 
@@ -95,7 +111,7 @@ class Producer:
         self._producer_config = producer_config
         self._circuit_breaker = circuit_breaker
         self._telemetry = telemetry
-        self._producer: Optional[AIOKafkaProducer] = None
+        self._producer: AIOKafkaProducer | None = None
         self._started = False
         self._in_transaction = False
         self._transaction_buffer: list[ProducerRecord] = []
@@ -111,17 +127,7 @@ class Producer:
         elif isinstance(acks, str):
             acks = int(acks)
 
-        security_kwargs = {}
-        if self._client_config.security_protocol != "PLAINTEXT":
-            security_kwargs["security_protocol"] = self._client_config.security_protocol
-
-        if self._client_config.sasl_mechanism:
-            security_kwargs["sasl_mechanism"] = self._client_config.sasl_mechanism
-            security_kwargs["sasl_plain_username"] = self._client_config.sasl_username
-            security_kwargs["sasl_plain_password"] = self._client_config.sasl_password
-
-        if self._client_config.ssl_cafile:
-            security_kwargs["ssl_context"] = True  # Create default SSL context
+        security_kwargs = build_security_kwargs(self._client_config)
 
         self._producer = AIOKafkaProducer(
             bootstrap_servers=self._client_config.bootstrap_servers,
@@ -151,11 +157,11 @@ class Producer:
     async def send(
         self,
         topic: str,
-        value: Optional[bytes] = None,
-        key: Optional[bytes] = None,
-        partition: Optional[int] = None,
-        timestamp_ms: Optional[int] = None,
-        headers: Optional[Dict[str, bytes]] = None,
+        value: bytes | None = None,
+        key: bytes | None = None,
+        partition: int | None = None,
+        timestamp_ms: int | None = None,
+        headers: dict[str, bytes] | None = None,
     ) -> RecordMetadata:
         """Send a message to a topic.
 
@@ -172,11 +178,31 @@ class Producer:
 
         Raises:
             ProducerError: If sending fails.
+
+        Note:
+            If a client-buffered transaction is active (see
+            :meth:`begin_transaction`), this call is buffered rather than
+            sent to the broker — it cannot bypass the active transaction.
+            The buffered send is only actually transmitted when
+            :meth:`commit_transaction` is called.
         """
         if self._producer is None:
             raise ProducerError("Producer not started")
 
+        producer = self._producer
+
         validate_topic_name(topic)
+
+        if self._in_transaction:
+            record = ProducerRecord(
+                topic=topic,
+                value=value,
+                key=key,
+                partition=partition if partition is not None else -1,
+                timestamp_ms=timestamp_ms,
+                headers=headers,
+            )
+            return self._buffer_record(record)
 
         # Convert headers to list of tuples
         header_list = None
@@ -188,7 +214,7 @@ class Producer:
                 raise CircuitBreakerOpen()
 
             async def _do_send() -> RecordMetadata:
-                future = await self._producer.send(
+                future = await producer.send(
                     topic,
                     value=value,
                     key=key,
@@ -218,7 +244,9 @@ class Producer:
         except CircuitBreakerOpen:
             raise
         except KafkaError as e:
-            if self._circuit_breaker is not None and isinstance(e.__cause__, _RETRYABLE_EXCEPTIONS):
+            if self._circuit_breaker is not None and isinstance(
+                e.__cause__, _RETRYABLE_EXCEPTIONS
+            ):
                 self._circuit_breaker.record_failure()
             raise ProducerError(f"Failed to send message: {e}") from e
         except _RETRYABLE_EXCEPTIONS:
@@ -226,11 +254,30 @@ class Producer:
                 self._circuit_breaker.record_failure()
             raise
 
+    def _buffer_record(self, record: ProducerRecord) -> RecordMetadata:
+        """Append a record to the active transaction buffer.
+
+        Returns synthetic metadata (partition/offset of ``-1``) because the
+        record has not actually been sent to the broker yet — it is only
+        replayed as a real send when :meth:`commit_transaction` runs.
+        """
+        self._transaction_buffer.append(record)
+        return RecordMetadata(
+            topic=record.topic,
+            partition=-1,
+            offset=-1,
+            timestamp=datetime.fromtimestamp((record.timestamp_ms or 0) / 1000),
+            serialized_key_size=len(record.key) if record.key else 0,
+            serialized_value_size=len(record.value) if record.value else 0,
+        )
+
     async def send_record(self, record: ProducerRecord) -> RecordMetadata:
         """Send a ProducerRecord.
 
-        If a transaction is in progress, the record is buffered instead of being
-        sent immediately.
+        If a client-buffered transaction is in progress, the record is
+        buffered instead of being sent immediately (see :meth:`send`, which
+        this delegates to and which enforces the same buffering so a
+        transaction can never be bypassed).
 
         Args:
             record: The record to send.
@@ -238,17 +285,6 @@ class Producer:
         Returns:
             Metadata about the sent message.
         """
-        if self._in_transaction:
-            self._transaction_buffer.append(record)
-            return RecordMetadata(
-                topic=record.topic,
-                partition=-1,
-                offset=-1,
-                timestamp=record.timestamp_ms or 0,
-                serialized_key_size=len(record.key) if record.key else 0,
-                serialized_value_size=len(record.value) if record.value else 0,
-            )
-
         partition = record.partition if record.partition >= 0 else None
         return await self.send(
             topic=record.topic,
@@ -259,9 +295,7 @@ class Producer:
             headers=record.headers,
         )
 
-    async def send_batch(
-        self, records: List[ProducerRecord]
-    ) -> List[RecordMetadata]:
+    async def send_batch(self, records: list[ProducerRecord]) -> list[RecordMetadata]:
         """Send multiple records.
 
         Args:
@@ -290,10 +324,17 @@ class Producer:
         return self._started
 
     async def begin_transaction(self) -> None:
-        """Begin a new transaction.
+        """Begin a new client-buffered (non-atomic) pseudo-transaction.
 
-        Messages sent after this call are buffered until
-        :meth:`commit_transaction` or :meth:`abort_transaction` is called.
+        Every :meth:`send` / :meth:`send_record` call made after this call —
+        and until :meth:`commit_transaction` or :meth:`abort_transaction` is
+        called — is buffered on the client instead of being transmitted to
+        the broker. There is no way to bypass an active transaction: all
+        send paths route through this buffer while it is active.
+
+        This is **not** broker-side transactional atomicity — no such
+        coordinator exists on the wire protocol this SDK speaks. See the
+        class docstring for details.
 
         Raises:
             RuntimeError: If a transaction is already in progress.
@@ -303,8 +344,21 @@ class Producer:
         self._in_transaction = True
         self._transaction_buffer = []
 
-    async def commit_transaction(self) -> List[RecordMetadata]:
-        """Commit the current transaction, sending all buffered messages atomically.
+    async def commit_transaction(self) -> list[RecordMetadata]:
+        """Commit the buffered pseudo-transaction by replaying buffered sends.
+
+        This snapshots and clears the transaction buffer and exits buffering
+        mode *before* replaying the buffered records as ordinary
+        (non-buffering) sends, so those replayed sends are transmitted to
+        the broker rather than being re-buffered into the same list.
+
+        .. warning::
+            This is **client-buffered and non-atomic**: the Streamline
+            broker provides no cross-message transactional coordinator, so
+            "commit" is only a local replay of independently-sent produce
+            requests. If a send fails partway through, earlier buffered
+            messages may already have been delivered while later ones were
+            not — there is no all-or-nothing guarantee.
 
         Returns:
             List of metadata for each sent message.
@@ -314,14 +368,17 @@ class Producer:
         """
         if not self._in_transaction:
             raise RuntimeError("No transaction in progress")
-        try:
-            results: List[RecordMetadata] = []
-            if self._transaction_buffer:
-                results = await self.send_batch(self._transaction_buffer)
-            return results
-        finally:
-            self._in_transaction = False
-            self._transaction_buffer = []
+        # Snapshot and clear the buffer, and exit buffering mode, before
+        # issuing any real (non-buffering) sends. Doing this first ensures
+        # send()/send_record() calls made below hit the broker instead of
+        # re-appending onto the buffer they were just drained from.
+        buffered_records = self._transaction_buffer
+        self._transaction_buffer = []
+        self._in_transaction = False
+
+        if not buffered_records:
+            return []
+        return await self.send_batch(buffered_records)
 
     async def abort_transaction(self) -> None:
         """Abort the current transaction, discarding all buffered messages.
@@ -339,7 +396,7 @@ class Producer:
         """Return True if a transaction is currently active."""
         return self._in_transaction
 
-    async def __aenter__(self) -> "Producer":
+    async def __aenter__(self) -> Producer:
         """Enter async context manager."""
         await self.start()
         return self

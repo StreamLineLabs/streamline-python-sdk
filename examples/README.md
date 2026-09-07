@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Python 3.9+, streamline-sdk installed
+- Python 3.9 through 3.14, with `streamline-sdk` installed
 - A running Streamline server (default: `localhost:9092`)
 
 ## Running
@@ -11,16 +11,19 @@ Start Streamline:
 
 ```bash
 # Via Docker
-docker run -p 9092:9092 -p 9094:9094 ghcr.io/streamlinelabs/streamline:0.2.0 --playground
+docker run -p 9092:9092 -p 9094:9094 \
+  ghcr.io/streamlinelabs/streamline:0.4.0 --playground
 
 # Or via Homebrew
 streamline --playground
 ```
 
-Run the example:
+Run an example:
 
 ```bash
 python examples/basic_usage.py
+python examples/query_usage.py
+python examples/schema_registry.py
 ```
 
 ## Configuration

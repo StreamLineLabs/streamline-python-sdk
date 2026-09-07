@@ -1,34 +1,48 @@
 # Testcontainers Streamline (Python)
 
-[![PyPI](https://img.shields.io/pypi/v/testcontainers-streamline?style=flat-square)](https://pypi.org/project/testcontainers-streamline/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](LICENSE)
 
-Testcontainers module for [Streamline](https://github.com/streamlinelabs/streamline) — **5x faster** than Kafka containers (~1s vs ~15s startup).
+Testcontainers module for [Streamline](https://github.com/streamlinelabs/streamline).
+
+> **Source-only, unpublished:** this package is not published to PyPI (see
+> "Installation" below for why) and CI only builds and validates it
+> (`python -m build` + `twine check`) — it never runs `twine upload`. Use it
+> from a source checkout.
 
 ## Features
 
 - Kafka-compatible container for testing
-- Fast startup (~100ms vs seconds for Kafka)
-- Low memory footprint (<50MB)
 - No ZooKeeper or KRaft required
 - Built-in health checks
 
 ## Installation
 
+There is no `testcontainers-streamline` package on PyPI. Install from a
+source checkout of this repository instead:
+
 ```bash
-pip install testcontainers-streamline
+pip install -e streamline-python-sdk/testcontainers
 ```
 
 ## Usage
 
 ### Basic Usage
 
+`StreamlineContainer` requires an explicit, digest-pinned image reference
+(`registry/repo@sha256:<digest>`) — there is no default image. A mutable
+tag (including `:latest` or a version tag like `:0.3.0`) is rejected,
+because this SDK cannot verify in advance that a given tag exists or
+contains a working Streamline server; supply a digest you have verified
+yourself.
+
 ```python
 from streamline_testcontainers import StreamlineContainer
 from kafka import KafkaProducer, KafkaConsumer
 
+IMAGE = "ghcr.io/streamlinelabs/streamline@sha256:<digest-you-verified>"
+
 # Using context manager (recommended)
-with StreamlineContainer() as streamline:
+with StreamlineContainer(IMAGE) as streamline:
     bootstrap_servers = streamline.get_bootstrap_servers()
 
     # Use with any Kafka client
@@ -44,9 +58,11 @@ with StreamlineContainer() as streamline:
 import pytest
 from streamline_testcontainers import StreamlineContainer
 
+IMAGE = "ghcr.io/streamlinelabs/streamline@sha256:<digest-you-verified>"
+
 @pytest.fixture(scope="module")
 def streamline():
-    with StreamlineContainer() as container:
+    with StreamlineContainer(IMAGE) as container:
         yield container
 
 def test_kafka_integration(streamline):
@@ -57,7 +73,7 @@ def test_kafka_integration(streamline):
 ### With Debug Logging
 
 ```python
-with StreamlineContainer().with_debug_logging() as streamline:
+with StreamlineContainer(IMAGE).with_debug_logging() as streamline:
     # Container will output debug logs
     pass
 ```
@@ -65,7 +81,7 @@ with StreamlineContainer().with_debug_logging() as streamline:
 ### Create Topics
 
 ```python
-with StreamlineContainer() as streamline:
+with StreamlineContainer(IMAGE) as streamline:
     streamline.create_topic("my-topic", partitions=3)
 ```
 
@@ -74,20 +90,13 @@ with StreamlineContainer() as streamline:
 ```python
 import requests
 
-with StreamlineContainer() as streamline:
+with StreamlineContainer(IMAGE) as streamline:
     # Health check
-    response = requests.get(streamline.get_health_url())
+    response = requests.get(streamline.get_health_url(), timeout=5)
     assert response.status_code == 200
 
     # Metrics
-    metrics = requests.get(streamline.get_metrics_url()).text
-```
-
-### Custom Image Version
-
-```python
-with StreamlineContainer("streamline/streamline:0.2.0") as streamline:
-    pass
+    metrics = requests.get(streamline.get_metrics_url(), timeout=5).text
 ```
 
 ## API Reference
@@ -103,6 +112,7 @@ with StreamlineContainer("streamline/streamline:0.2.0") as streamline:
 | `create_topic(name, partitions)` | Creates a topic |
 | `with_debug_logging()` | Enables debug logging |
 | `with_trace_logging()` | Enables trace logging |
+| `with_log_level(level)` | Sets trace/debug/info/warn/error logging |
 
 ## Development
 

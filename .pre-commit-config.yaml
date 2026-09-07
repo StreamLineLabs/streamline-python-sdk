@@ -26,5 +26,5 @@ repos:
     rev: v1.8.0
     hooks:
       - id: mypy
-        additional_dependencies: [aiokafka>=0.10.0]
+        additional_dependencies: [aiokafka>=0.10.0, cryptography>=42.0.0]
         args: [--ignore-missing-imports]

@@ -3,17 +3,24 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, AsyncIterator, Dict, List, Optional, Set, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from aiokafka import AIOKafkaConsumer, TopicPartition
 from aiokafka.errors import KafkaError
 
+from ._security import build_security_kwargs
+from ._url import encode_path_segment
 from .circuit_breaker import CircuitBreakerOpen
 from .exceptions import (
-    ConsumerError,
     ConnectionError as _ConnectionError,
+)
+from .exceptions import (
+    ConsumerError,
+)
+from .exceptions import (
     TimeoutError as _TimeoutError,
 )
 from .validation import validate_topic_name
@@ -41,10 +48,10 @@ class ConsumerRecord:
     topic: str
     partition: int
     offset: int
-    key: Optional[bytes]
-    value: Optional[bytes]
+    key: bytes | None
+    value: bytes | None
     timestamp: datetime
-    headers: Dict[str, bytes]
+    headers: dict[str, bytes]
 
 
 class Consumer:
@@ -62,8 +69,8 @@ class Consumer:
         client_config: Any,
         consumer_config: Any,
         *,
-        circuit_breaker: Optional[CircuitBreaker] = None,
-        telemetry: Optional[Any] = None,
+        circuit_breaker: CircuitBreaker | None = None,
+        telemetry: Any | None = None,
     ):
         """Initialize the consumer.
 
@@ -77,8 +84,8 @@ class Consumer:
         self._consumer_config = consumer_config
         self._circuit_breaker = circuit_breaker
         self._telemetry = telemetry
-        self._consumer: Optional[AIOKafkaConsumer] = None
-        self._subscribed_topics: Set[str] = set()
+        self._consumer: AIOKafkaConsumer | None = None
+        self._subscribed_topics: set[str] = set()
         self._started = False
 
     async def start(self) -> None:
@@ -86,14 +93,7 @@ class Consumer:
         if self._started:
             return
 
-        security_kwargs = {}
-        if self._client_config.security_protocol != "PLAINTEXT":
-            security_kwargs["security_protocol"] = self._client_config.security_protocol
-
-        if self._client_config.sasl_mechanism:
-            security_kwargs["sasl_mechanism"] = self._client_config.sasl_mechanism
-            security_kwargs["sasl_plain_username"] = self._client_config.sasl_username
-            security_kwargs["sasl_plain_password"] = self._client_config.sasl_password
+        security_kwargs = build_security_kwargs(self._client_config)
 
         self._consumer = AIOKafkaConsumer(
             bootstrap_servers=self._client_config.bootstrap_servers,
@@ -123,7 +123,7 @@ class Consumer:
         self._started = False
         self._subscribed_topics.clear()
 
-    async def subscribe(self, topics: List[str]) -> None:
+    async def subscribe(self, topics: list[str]) -> None:
         """Subscribe to topics.
 
         Args:
@@ -144,7 +144,7 @@ class Consumer:
             self._consumer.unsubscribe()
             self._subscribed_topics.clear()
 
-    def assign(self, partitions: List[TopicPartition]) -> None:
+    def assign(self, partitions: list[TopicPartition]) -> None:
         """Manually assign partitions.
 
         Args:
@@ -168,7 +168,7 @@ class Consumer:
         self._consumer.seek(partition, offset)
 
     async def seek_to_beginning(
-        self, partitions: Optional[List[TopicPartition]] = None
+        self, partitions: list[TopicPartition] | None = None
     ) -> None:
         """Seek to the beginning of partitions.
 
@@ -183,9 +183,7 @@ class Consumer:
 
         await self._consumer.seek_to_beginning(*partitions)
 
-    async def seek_to_end(
-        self, partitions: Optional[List[TopicPartition]] = None
-    ) -> None:
+    async def seek_to_end(self, partitions: list[TopicPartition] | None = None) -> None:
         """Seek to the end of partitions.
 
         Args:
@@ -199,7 +197,7 @@ class Consumer:
 
         await self._consumer.seek_to_end(*partitions)
 
-    async def commit(self, offsets: Optional[Dict[TopicPartition, int]] = None) -> None:
+    async def commit(self, offsets: dict[TopicPartition, int] | None = None) -> None:
         """Commit offsets.
 
         Args:
@@ -225,9 +223,10 @@ class Consumer:
         if self._consumer is None:
             raise ConsumerError("Consumer not started")
 
-        return await self._consumer.position(partition)
+        position: int = await self._consumer.position(partition)
+        return position
 
-    async def committed(self, partition: TopicPartition) -> Optional[int]:
+    async def committed(self, partition: TopicPartition) -> int | None:
         """Get committed offset for a partition.
 
         Args:
@@ -239,9 +238,10 @@ class Consumer:
         if self._consumer is None:
             raise ConsumerError("Consumer not started")
 
-        return await self._consumer.committed(partition)
+        committed: int | None = await self._consumer.committed(partition)
+        return committed
 
-    def assignment(self) -> Set[TopicPartition]:
+    def assignment(self) -> set[TopicPartition]:
         """Get assigned partitions.
 
         Returns:
@@ -250,9 +250,10 @@ class Consumer:
         if self._consumer is None:
             return set()
 
-        return self._consumer.assignment()
+        assignment: set[TopicPartition] = self._consumer.assignment()
+        return assignment
 
-    def subscription(self) -> Set[str]:
+    def subscription(self) -> set[str]:
         """Get subscribed topics.
 
         Returns:
@@ -261,8 +262,8 @@ class Consumer:
         return self._subscribed_topics.copy()
 
     async def poll(
-        self, timeout_ms: int = 1000, max_records: Optional[int] = None
-    ) -> List[ConsumerRecord]:
+        self, timeout_ms: int = 1000, max_records: int | None = None
+    ) -> list[ConsumerRecord]:
         """Poll for messages.
 
         Args:
@@ -276,13 +277,14 @@ class Consumer:
             raise ConsumerError("Consumer not started")
 
         records = []
+        consumer = self._consumer
         topic_label = ",".join(sorted(self._subscribed_topics)) or "unknown"
         try:
             if self._circuit_breaker is not None and not self._circuit_breaker.allow():
                 raise CircuitBreakerOpen()
 
             async def _do_poll() -> None:
-                data = await self._consumer.getmany(
+                data = await consumer.getmany(
                     timeout_ms=timeout_ms, max_records=max_records
                 )
 
@@ -316,7 +318,9 @@ class Consumer:
         except CircuitBreakerOpen:
             raise
         except KafkaError as e:
-            if self._circuit_breaker is not None and isinstance(e.__cause__, _RETRYABLE_EXCEPTIONS):
+            if self._circuit_breaker is not None and isinstance(
+                e.__cause__, _RETRYABLE_EXCEPTIONS
+            ):
                 self._circuit_breaker.record_failure()
             raise ConsumerError(f"Failed to poll: {e}") from e
         except _RETRYABLE_EXCEPTIONS:
@@ -357,16 +361,17 @@ class Consumer:
         return self._started
 
     @property
-    def group_id(self) -> Optional[str]:
+    def group_id(self) -> str | None:
         """Get the consumer group ID."""
-        return self._consumer_config.group_id
+        group_id: str | None = self._consumer_config.group_id
+        return group_id
 
     async def search(
         self,
         topic: str,
         query: str,
         k: int = 10,
-    ) -> List["SearchHit"]:
+    ) -> list[SearchHit]:
         """Search a topic using semantic search via the HTTP API.
 
         Args:
@@ -382,13 +387,14 @@ class Consumer:
         """
         try:
             import aiohttp
+
             _has_aiohttp = True
         except ImportError:
             _has_aiohttp = False
 
         http_url = self._client_config.http_url
 
-        url = f"{http_url}/api/v1/topics/{topic}/search"
+        url = f"{http_url}/api/v1/topics/{encode_path_segment(topic)}/search"
         payload = {"query": query, "k": k}
 
         if _has_aiohttp:
@@ -417,9 +423,7 @@ class Consumer:
             def _sync_post():
                 with urllib.request.urlopen(req, timeout=10) as resp:
                     if resp.status != 200:
-                        raise ConsumerError(
-                            f"search failed: HTTP {resp.status}"
-                        )
+                        raise ConsumerError(f"search failed: HTTP {resp.status}")
                     return _json.loads(resp.read())
 
             data = await asyncio.to_thread(_sync_post)
@@ -430,16 +434,12 @@ class Consumer:
                 partition=int(h["partition"]),
                 offset=int(h["offset"]),
                 score=float(h["score"]),
-                value=(
-                    h.get("value", "").encode()
-                    if h.get("value")
-                    else None
-                ),
+                value=(h.get("value", "").encode() if h.get("value") else None),
             )
             for h in data.get("hits", [])
         ]
 
-    async def __aenter__(self) -> "Consumer":
+    async def __aenter__(self) -> Consumer:
         """Enter async context manager."""
         await self.start()
         return self
@@ -460,6 +460,7 @@ class Consumer:
 #
 # Stability tier: Experimental. The API may change before M2 GA.
 
+
 @dataclass
 class SearchHit:
     """A single semantic-search result.
@@ -476,7 +477,7 @@ class SearchHit:
     partition: int
     offset: int
     score: float
-    value: Optional[bytes] = None
+    value: bytes | None = None
 
 
 async def search(
@@ -487,7 +488,7 @@ async def search(
     include_value: bool = False,
     admin_port: int = 9094,
     timeout: float = 5.0,
-) -> List[SearchHit]:
+) -> list[SearchHit]:
     """Run a semantic search against a topic configured with ``semantic.embed=true``.
 
     Args:
@@ -520,7 +521,7 @@ async def search(
         ) from exc
 
     host = bootstrap_servers.split(",")[0].split(":")[0]
-    url = f"http://{host}:{admin_port}/topics/{topic}/search"
+    url = f"http://{host}:{admin_port}/topics/{encode_path_segment(topic)}/search"
     qs = "?include=value" if include_value else ""
 
     async with aiohttp.ClientSession() as session:
@@ -540,7 +541,9 @@ async def search(
             partition=int(h["partition"]),
             offset=int(h["offset"]),
             score=float(h["score"]),
-            value=h.get("value", "").encode() if include_value and h.get("value") else None,
+            value=h.get("value", "").encode()
+            if include_value and h.get("value")
+            else None,
         )
         for h in data.get("hits", [])
     ]

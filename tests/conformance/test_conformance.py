@@ -1,31 +1,74 @@
 """SDK Conformance Test Suite — 46 tests per SDK_CONFORMANCE_SPEC.md
 
-Requires: docker compose -f docker-compose.conformance.yml up -d
+Requires a running Streamline server, e.g.::
+
+    docker compose -f docker-compose.test.yml up -d
+    CONFORMANCE=1 pytest tests/conformance -m conformance
 """
+
+from __future__ import annotations
+
 import asyncio
 import os
 import time
 
 import pytest
 
+from streamline_sdk import exceptions
+from streamline_sdk.admin import TopicConfig, TopicInfo
 from streamline_sdk.client import StreamlineClient
 from streamline_sdk.producer import ProducerRecord, RecordMetadata
-from streamline_sdk.consumer import ConsumerRecord
-from streamline_sdk.admin import TopicConfig, TopicInfo
-from streamline_sdk import exceptions
 
 BOOTSTRAP = os.environ.get("STREAMLINE_BOOTSTRAP", "localhost:9092")
 HTTP_URL = os.environ.get("STREAMLINE_HTTP", "http://localhost:9094")
 
-# Skip the entire module when no server is available.
-pytestmark = pytest.mark.skipif(
-    os.environ.get("CONFORMANCE", "0") != "1",
-    reason="Set CONFORMANCE=1 to run conformance tests against a live server",
-)
+# Server-dependent: ``tests/conftest.py`` skips these unless CONFORMANCE=1.
+pytestmark = pytest.mark.conformance
 
 
 def unique_topic(test_id: str) -> str:
     return f"conformance-{test_id}-{int(time.time() * 1_000_000)}"
+
+
+def require_env(*names: str) -> list[str]:
+    """Return required fixture values or explicitly skip with missing names."""
+    missing = [name for name in names if not os.environ.get(name)]
+    if missing:
+        pytest.skip(
+            "external security fixture unavailable; missing "
+            + ", ".join(sorted(missing))
+        )
+    return [os.environ[name] for name in names]
+
+
+def require_sasl_fixture(
+    mechanism: str,
+) -> tuple[str, str, str, str, str | None]:
+    """Return an explicitly declared SASL fixture for one mechanism."""
+    bootstrap, username, password, mechanisms_value = require_env(
+        "STREAMLINE_SASL_BOOTSTRAP",
+        "STREAMLINE_SASL_USERNAME",
+        "STREAMLINE_SASL_PASSWORD",
+        "STREAMLINE_SASL_MECHANISMS",
+    )
+    mechanisms = {
+        value.strip().upper() for value in mechanisms_value.split(",") if value.strip()
+    }
+    if mechanism.upper() not in mechanisms:
+        pytest.skip(
+            f"external SASL fixture does not declare {mechanism}; "
+            f"available mechanisms: {sorted(mechanisms)}"
+        )
+
+    protocol = os.environ.get(
+        "STREAMLINE_SASL_SECURITY_PROTOCOL",
+        "SASL_PLAINTEXT",
+    ).upper()
+    ca_file = None
+    if protocol == "SASL_SSL":
+        ca_file = require_env("STREAMLINE_TLS_CA_FILE")[0]
+
+    return bootstrap, username, password, protocol, ca_file
 
 
 # ========== PRODUCER (8 tests) ==========
@@ -78,8 +121,7 @@ class TestProducer:
         topic = unique_topic("p04")
         await self.admin.create_topic(TopicConfig(name=topic, num_partitions=1))
         records = [
-            ProducerRecord(topic=topic, value=f"msg-{i}".encode())
-            for i in range(10)
+            ProducerRecord(topic=topic, value=f"msg-{i}".encode()) for i in range(10)
         ]
         results = await self.producer.send_batch(records)
         assert len(results) == 10
@@ -177,6 +219,7 @@ class TestConsumer:
         await consumer.start()
         await consumer.subscribe([topic])
         from streamline_sdk.consumer import TopicPartition
+
         await consumer.seek(TopicPartition(topic, 0), 5)
         records = await consumer.poll(timeout_ms=5000, max_records=10)
         assert len(records) >= 5
@@ -243,7 +286,8 @@ class TestConsumer:
         topic = unique_topic("c07")
         await self.admin.create_topic(TopicConfig(name=topic, num_partitions=1))
         await self.producer.send(
-            topic, value=b"with-headers",
+            topic,
+            value=b"with-headers",
             headers={b"x-trace": b"t1"},
         )
         await self.producer.flush()
@@ -318,8 +362,14 @@ class TestConsumerGroups:
         await c2.poll(timeout_ms=3000)
 
         info = await self.admin.describe_consumer_group(group)
-        assert info.state in ("Stable", "CompletingRebalance", "PreparingRebalance",
-                              "stable", "completing_rebalance", "preparing_rebalance")
+        assert info.state in (
+            "Stable",
+            "CompletingRebalance",
+            "PreparingRebalance",
+            "stable",
+            "completing_rebalance",
+            "preparing_rebalance",
+        )
         await c1.close()
         await c2.close()
 
@@ -398,8 +448,15 @@ class TestAuthentication:
     @pytest.mark.asyncio
     async def test_a01_tls_connect(self):
         """Connect to a TLS-enabled server."""
-        tls_bootstrap = os.environ.get("STREAMLINE_TLS_BOOTSTRAP", "localhost:9093")
-        client = StreamlineClient(bootstrap_servers=tls_bootstrap)
+        tls_bootstrap, ca_file = require_env(
+            "STREAMLINE_TLS_BOOTSTRAP",
+            "STREAMLINE_TLS_CA_FILE",
+        )
+        client = StreamlineClient(
+            bootstrap_servers=tls_bootstrap,
+            security_protocol="SSL",
+            ssl_cafile=ca_file,
+        )
         try:
             await client.start()
             assert client.is_connected
@@ -409,8 +466,19 @@ class TestAuthentication:
     @pytest.mark.asyncio
     async def test_a02_mutual_tls(self):
         """Connect with mutual TLS (client certificate)."""
-        tls_bootstrap = os.environ.get("STREAMLINE_TLS_BOOTSTRAP", "localhost:9093")
-        client = StreamlineClient(bootstrap_servers=tls_bootstrap)
+        tls_bootstrap, ca_file, cert_file, key_file = require_env(
+            "STREAMLINE_TLS_BOOTSTRAP",
+            "STREAMLINE_TLS_CA_FILE",
+            "STREAMLINE_TLS_CERT_FILE",
+            "STREAMLINE_TLS_KEY_FILE",
+        )
+        client = StreamlineClient(
+            bootstrap_servers=tls_bootstrap,
+            security_protocol="SSL",
+            ssl_cafile=ca_file,
+            ssl_certfile=cert_file,
+            ssl_keyfile=key_file,
+        )
         try:
             await client.start()
             assert client.is_connected
@@ -420,11 +488,14 @@ class TestAuthentication:
     @pytest.mark.asyncio
     async def test_a03_sasl_plain(self):
         """Authenticate with SASL/PLAIN."""
+        bootstrap, username, password, protocol, ca_file = require_sasl_fixture("PLAIN")
         client = StreamlineClient(
-            bootstrap_servers=BOOTSTRAP,
+            bootstrap_servers=bootstrap,
+            security_protocol=protocol,
             sasl_mechanism="PLAIN",
-            sasl_plain_username=os.environ.get("SASL_USERNAME", "admin"),
-            sasl_plain_password=os.environ.get("SASL_PASSWORD", "admin-secret"),
+            sasl_username=username,
+            sasl_password=password,
+            ssl_cafile=ca_file,
         )
         try:
             await client.start()
@@ -435,11 +506,16 @@ class TestAuthentication:
     @pytest.mark.asyncio
     async def test_a04_scram_sha256(self):
         """Authenticate with SASL/SCRAM-SHA-256."""
+        bootstrap, username, password, protocol, ca_file = require_sasl_fixture(
+            "SCRAM-SHA-256"
+        )
         client = StreamlineClient(
-            bootstrap_servers=BOOTSTRAP,
+            bootstrap_servers=bootstrap,
+            security_protocol=protocol,
             sasl_mechanism="SCRAM-SHA-256",
-            sasl_plain_username=os.environ.get("SASL_USERNAME", "admin"),
-            sasl_plain_password=os.environ.get("SASL_PASSWORD", "admin-secret"),
+            sasl_username=username,
+            sasl_password=password,
+            ssl_cafile=ca_file,
         )
         try:
             await client.start()
@@ -450,11 +526,16 @@ class TestAuthentication:
     @pytest.mark.asyncio
     async def test_a05_scram_sha512(self):
         """Authenticate with SASL/SCRAM-SHA-512."""
+        bootstrap, username, password, protocol, ca_file = require_sasl_fixture(
+            "SCRAM-SHA-512"
+        )
         client = StreamlineClient(
-            bootstrap_servers=BOOTSTRAP,
+            bootstrap_servers=bootstrap,
+            security_protocol=protocol,
             sasl_mechanism="SCRAM-SHA-512",
-            sasl_plain_username=os.environ.get("SASL_USERNAME", "admin"),
-            sasl_plain_password=os.environ.get("SASL_PASSWORD", "admin-secret"),
+            sasl_username=username,
+            sasl_password=password,
+            ssl_cafile=ca_file,
         )
         try:
             await client.start()
@@ -465,15 +546,16 @@ class TestAuthentication:
     @pytest.mark.asyncio
     async def test_a06_auth_failure(self):
         """Invalid credentials should raise AuthenticationError."""
+        bootstrap, _, _, protocol, ca_file = require_sasl_fixture("PLAIN")
         client = StreamlineClient(
-            bootstrap_servers=BOOTSTRAP,
+            bootstrap_servers=bootstrap,
+            security_protocol=protocol,
             sasl_mechanism="PLAIN",
-            sasl_plain_username="wrong-user",
-            sasl_plain_password="wrong-pass",
+            sasl_username="wrong-user",
+            sasl_password="wrong-pass",
+            ssl_cafile=ca_file,
         )
-        with pytest.raises(
-            (exceptions.AuthenticationError, exceptions.ConnectionError, Exception)
-        ):
+        with pytest.raises(exceptions.ConnectionError):
             await client.start()
         await client.close()
 
@@ -482,28 +564,45 @@ class TestAuthentication:
 
 SCHEMA_REGISTRY_URL = "http://localhost:9094"
 
-AVRO_SCHEMA = '{"type":"record","name":"User","fields":[{"name":"id","type":"int"},{"name":"name","type":"string"}]}'
-JSON_SCHEMA = '{"type":"object","properties":{"id":{"type":"integer"},"name":{"type":"string"}},"required":["id","name"]}'
+AVRO_SCHEMA = (
+    '{"type":"record","name":"User",'
+    '"fields":[{"name":"id","type":"int"},{"name":"name","type":"string"}]}'
+)
+JSON_SCHEMA = (
+    '{"type":"object",'
+    '"properties":{"id":{"type":"integer"},"name":{"type":"string"}},'
+    '"required":["id","name"]}'
+)
 
 
 class TestSchemaRegistry:
     @pytest.fixture(autouse=True)
     def setup(self):
         """Initialize schema registry client for each test."""
-        from streamline_sdk.serializers import SchemaRegistryClient, SchemaRegistryConfig
-        self.client = SchemaRegistryClient(SchemaRegistryConfig(url=SCHEMA_REGISTRY_URL))
+        from streamline_sdk.serializers import (
+            SchemaRegistryClient,
+            SchemaRegistryConfig,
+        )
+
+        self.client = SchemaRegistryClient(
+            SchemaRegistryConfig(url=SCHEMA_REGISTRY_URL)
+        )
 
     @pytest.mark.asyncio
     async def test_s01_register_schema(self):
         """Register a schema and verify an ID is returned."""
-        schema_id = await self.client.register_schema("test-s01-value", AVRO_SCHEMA, "AVRO")
+        schema_id = await self.client.register_schema(
+            "test-s01-value", AVRO_SCHEMA, "AVRO"
+        )
         assert isinstance(schema_id, int)
         assert schema_id > 0
 
     @pytest.mark.asyncio
     async def test_s02_get_by_id(self):
         """Register a schema, then retrieve it by ID."""
-        schema_id = await self.client.register_schema("test-s02-value", AVRO_SCHEMA, "AVRO")
+        schema_id = await self.client.register_schema(
+            "test-s02-value", AVRO_SCHEMA, "AVRO"
+        )
         schema_str = await self.client.get_schema(schema_id)
         assert "User" in schema_str
 
@@ -519,13 +618,17 @@ class TestSchemaRegistry:
     async def test_s04_compatibility_check(self):
         """Register a schema and check compatibility of a new version."""
         await self.client.register_schema("test-s04-value", AVRO_SCHEMA, "AVRO")
-        is_compat = await self.client.check_compatibility("test-s04-value", AVRO_SCHEMA, "AVRO")
+        is_compat = await self.client.check_compatibility(
+            "test-s04-value", AVRO_SCHEMA, "AVRO"
+        )
         assert isinstance(is_compat, bool)
 
     @pytest.mark.asyncio
     async def test_s05_avro_schema(self):
         """Register an Avro schema specifically."""
-        schema_id = await self.client.register_schema("test-s05-avro", AVRO_SCHEMA, "AVRO")
+        schema_id = await self.client.register_schema(
+            "test-s05-avro", AVRO_SCHEMA, "AVRO"
+        )
         assert schema_id > 0
         schema_str = await self.client.get_schema(schema_id)
         assert "record" in schema_str
@@ -533,7 +636,9 @@ class TestSchemaRegistry:
     @pytest.mark.asyncio
     async def test_s06_json_schema(self):
         """Register a JSON Schema specifically."""
-        schema_id = await self.client.register_schema("test-s06-json", JSON_SCHEMA, "JSON")
+        schema_id = await self.client.register_schema(
+            "test-s06-json", JSON_SCHEMA, "JSON"
+        )
         assert schema_id > 0
         schema_str = await self.client.get_schema(schema_id)
         assert "object" in schema_str
@@ -597,22 +702,25 @@ class TestErrorHandling:
     async def test_e01_connection_refused(self):
         """Connecting to a non-existent server raises ConnectionError."""
         client = StreamlineClient(bootstrap_servers="localhost:19999")
-        with pytest.raises((exceptions.ConnectionError, exceptions.StreamlineError, Exception)):
+        with pytest.raises(
+            (exceptions.ConnectionError, exceptions.StreamlineError, Exception)
+        ):
             await client.start()
         await client.close()
 
     @pytest.mark.asyncio
     async def test_e02_auth_denied(self):
         """Invalid credentials raise AuthenticationError."""
+        bootstrap, _, _, protocol, ca_file = require_sasl_fixture("PLAIN")
         client = StreamlineClient(
-            bootstrap_servers=BOOTSTRAP,
+            bootstrap_servers=bootstrap,
+            security_protocol=protocol,
             sasl_mechanism="PLAIN",
-            sasl_plain_username="invalid",
-            sasl_plain_password="invalid",
+            sasl_username="invalid",
+            sasl_password="invalid",
+            ssl_cafile=ca_file,
         )
-        with pytest.raises(
-            (exceptions.AuthenticationError, exceptions.ConnectionError, Exception)
-        ):
+        with pytest.raises(exceptions.ConnectionError):
             await client.start()
         await client.close()
 
@@ -695,14 +803,13 @@ class TestPerformance:
     async def test_f04_memory_usage(self):
         """Producing 10K messages should not cause excessive memory growth."""
         import sys
+
         topic = unique_topic("f04")
         await self.admin.create_topic(TopicConfig(name=topic, num_partitions=1))
         records = [
-            ProducerRecord(topic=topic, value=f"mem-{i}".encode())
-            for i in range(100)
+            ProducerRecord(topic=topic, value=f"mem-{i}".encode()) for i in range(100)
         ]
         results = await self.producer.send_batch(records)
         assert len(results) == 100
         # Basic sanity: Python process shouldn't exceed 500MB for this test
         assert sys.getsizeof(results) < 500 * 1024 * 1024
-

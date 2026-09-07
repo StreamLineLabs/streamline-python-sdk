@@ -1,12 +1,13 @@
 """Tests for SchemaProducer, SchemaConsumer, and DeserializedRecord."""
 
+from __future__ import annotations
+
 import json
 import struct
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-import pytest_asyncio
 
 from streamline_sdk.consumer import ConsumerRecord
 from streamline_sdk.exceptions import SerializationError
@@ -18,8 +19,7 @@ from streamline_sdk.schema_producer import (
     SchemaConsumer,
     SchemaProducer,
 )
-from streamline_sdk.serializers import SchemaRegistryClient, SchemaRegistryConfig
-
+from streamline_sdk.serializers import SchemaRegistryClient
 
 SAMPLE_SCHEMA = json.dumps(
     {
@@ -148,7 +148,10 @@ class TestSchemaProducer:
 
         call_kwargs = mock_producer.send.call_args
         assert call_kwargs.kwargs.get("key") or call_kwargs[1].get("key") == b"key1"
-        assert call_kwargs.kwargs.get("headers") or call_kwargs[1].get("headers") == headers
+        assert (
+            call_kwargs.kwargs.get("headers")
+            or call_kwargs[1].get("headers") == headers
+        )
 
     @pytest.mark.asyncio
     async def test_send_auto_register_disabled_raises(self):

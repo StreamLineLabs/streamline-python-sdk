@@ -20,7 +20,7 @@ streamline_sdk/
 ├── producer.py          # Producer with batching & compression
 ├── consumer.py          # Consumer with group coordination
 ├── admin.py             # Topic/group management
-├── config.py            # Dataclass configuration objects
+├── client.py            # Main client and configuration dataclasses
 ├── exceptions.py        # Exception hierarchy with hints & retryable flag
 ├── retry.py             # Retry logic with backoff
 └── types.py             # Shared type definitions
@@ -39,7 +39,7 @@ streamline_sdk/
 from streamline_sdk.exceptions import StreamlineError, ConnectionError
 
 try:
-    await client.produce("topic", value)
+    await client.producer.send("topic", value=b"value")
 except ConnectionError as e:
     if e.retryable:
         # Retry logic
